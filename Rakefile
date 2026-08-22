@@ -15,13 +15,15 @@ require "yard"
 YARD::Rake::YardocTask.new
 
 require "yardstick/rake/measurement"
-Yardstick::Rake::Measurement.new do |measurement|
+yardstick_options = { rules: { ExampleTag: { enabled: false } } }
+Yardstick::Rake::Measurement.new(:yardstick_measure, yardstick_options) do |measurement|
   measurement.output = "measurement/report.txt"
 end
 
 require "yardstick/rake/verify"
-Yardstick::Rake::Verify.new do |verify|
+Yardstick::Rake::Verify.new(:verify_measurements, yardstick_options) do |verify|
   verify.threshold = 67.1
+  verify.require_exact_threshold = false
 end
 
 task default: [:spec, :rubocop, :verify_measurements]

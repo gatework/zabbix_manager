@@ -4,7 +4,7 @@ require "spec_helper"
 
 describe "ZabbixManager::Templates" do
   let(:templates_mock) { ZabbixManager::Templates.new(client) }
-  let(:client) { double }
+  let(:client) { double(options: { debug: false }) }
 
   describe ".method_name" do
     subject { templates_mock.method_name }
@@ -91,6 +91,19 @@ describe "ZabbixManager::Templates" do
       it "returns the newly created ID" do
         expect(subject).to eq id_through_create
       end
+    end
+  end
+
+  describe ".get_template_ids" do
+    it "returns a flat collection of template references" do
+      allow(client).to receive(:api_request).with(
+        method: "template.get",
+        params: { output: "extend", filter: { host: %w[linux network] } }
+      ).and_return([{ "templateid" => "10" }, { "templateid" => "20" }])
+
+      expect(templates_mock.get_template_ids(%w[linux network])).to eq(
+        [{ templateid: "10" }, { templateid: "20" }]
+      )
     end
   end
 

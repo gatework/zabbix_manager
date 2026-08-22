@@ -2,26 +2,26 @@
 
 class ZabbixManager
   class Actions < Basic
-    # The method name used for interacting with Actions via Zabbix API
+    # 返回操作对象对应的 Zabbix API 方法前缀。
     #
     # @return [String]
     def method_name
       "action"
     end
 
-    # The id field name used for identifying specific Action objects via Zabbix API
+    # 返回操作对象用于业务识别的字段名。
     #
     # @return [String]
     def identify
       "name"
     end
 
-    # Get full/extended Action object data from API
+    # 获取操作及其执行、恢复、确认操作和过滤条件的完整数据。
     #
-    # @param data [Hash] Should include object's id field name (identify) and id value
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Hash]
+    # @param data [Hash] 包含识别字段及其值的查询条件
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务端返回非成功 HTTP 状态时抛出
+    # @return [Hash] 匹配的操作完整数据
     def get_full_data(data)
       log "[DEBUG] Call get_full_data with parameters: #{data.inspect}"
 

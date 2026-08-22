@@ -2,14 +2,14 @@
 
 class ZabbixManager
   class Events < Basic
-    # The method name used for interacting with Events via Zabbix API
+    # 返回事件对象对应的 Zabbix API 方法前缀。
     #
     # @return [String]
     def method_name
       "event"
     end
 
-    # The id field name used for identifying specific Event objects via Zabbix API
+    # 返回事件对象用于业务识别的字段名。
     #
     # @return [String]
     def identify

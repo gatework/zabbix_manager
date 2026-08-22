@@ -23,8 +23,6 @@ describe "ZabbixManager::HttpTests" do
 
     let(:result) do
       {
-        hostid: nil,
-        name: nil,
         steps: []
       }
     end

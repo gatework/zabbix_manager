@@ -2,185 +2,195 @@
 
 require "spec_helper"
 
-describe "ZabbixManager::Triggers" do
-  let(:triggers_mock) { ZabbixManager::Triggers.new(client) }
-  let(:client) { double }
+RSpec.describe ZabbixManager::Triggers do
+  let(:client) do
+    instance_double(ZabbixManager::Client, options: { debug: false, uncertain_write_delays: [0] })
+  end
+  let(:triggers) { described_class.new(client) }
 
-  describe ".method_name" do
-    subject { triggers_mock.method_name }
-
-    it { is_expected.to eq "trigger" }
+  before do
+    allow(client).to receive(:with_upsert_lock).and_yield
   end
 
-  describe ".identify" do
-    subject { triggers_mock.identify }
-
-    it { is_expected.to eq "description" }
-  end
-
-  describe ".dump_by_id" do
-    subject { triggers_mock.dump_by_id(data) }
-
-    let(:data) { { testkey: 222 } }
-    let(:result) { { test: 1 } }
-    let(:key) { "testkey" }
-
-    before do
-      allow(triggers_mock).to receive(:log)
-      allow(triggers_mock).to receive(:key).and_return(key)
-      allow(client).to receive(:api_request).with(
+  it "uses the singular trigger key when dumping by ID" do
+    allow(client).to receive(:api_request)
+      .with(
         method: "trigger.get",
-        params: {
-          filter: {
-            key.to_sym => data[key.to_sym]
-          },
-          output: "extend",
-          select_items: "extend",
-          select_functions: "extend"
-        }
-      ).and_return(result)
-    end
+        params: hash_including(filter: { triggerid: 301 })
+      )
+      .and_return([])
 
-    it "logs debug message" do
-      expect(triggers_mock).to receive(:log).with("[DEBUG] Call dump_by_id with parameters: #{data.inspect}")
-      subject
-    end
-
-    it { is_expected.to eq result }
+    expect(triggers.dump_by_id(triggerid: 301)).to eq([])
   end
 
-  describe ".safe_update" do
-    subject { triggers_mock.safe_update(data) }
+  it "creates a missing host-scoped trigger" do
+    allow(client).to receive(:api_request)
+      .with(method: "trigger.get", params: hash_including(hostids: 101))
+      .and_return([])
+    allow(client).to receive(:api_request)
+      .with(method: "trigger.create", params: hash_including(description: "WAN loss high"))
+      .and_return("triggerids" => ["301"])
 
-    let(:data) { { test: "1", triggerid: 7878, templateid: 4646, expression: "{11a:{22:.33(44)}" } }
-    let(:id_hash) { [{ "test" => 1 }, { "test2" => 2 }] }
-    let(:dump) do
-      {
-        test: "1",
-        triggerid: 7878,
-        items: [{ key_: "" }],
-        functions: [{ function: "33", parameter: "44" }],
-        expression: "{11}"
+    expect(
+      triggers.upsert_for_host(hostid: 101, description: "WAN loss high", expression: "last(/r/loss)>5")
+    ).to eq(301)
+  end
+
+  it "updates an existing trigger without rewriting expressions client-side" do
+    allow(client).to receive(:api_request)
+      .with(method: "trigger.get", params: hash_including(hostids: 101))
+      .and_return([{ "triggerid" => "301" }])
+    allow(client).to receive(:api_request)
+      .with(method: "trigger.update", params: hash_including(triggerid: "301", expression: "last(/r/loss)>5"))
+      .and_return("triggerids" => ["301"])
+
+    expect(
+      triggers.upsert_for_host(hostid: 101, description: "WAN loss high", expression: "last(/r/loss)>5")
+    ).to eq(301)
+  end
+
+  it "uses a stable managed key instead of a mutable trigger description" do
+    allow(client).to receive(:api_request).with(
+      method: "trigger.get",
+      params: {
+        hostids: 101,
+        tags: [{ tag: "zabbix_manager_id", value: "interface:line-1:bandwidth", operator: 1 }],
+        output: ["triggerid", "description"],
+        selectTags: "extend"
       }
-    end
-    let(:hash_equals) { true }
-    let(:operation_name) { "update" }
-    let(:key) { "test" }
-    let(:result) { "rtest" }
-    let(:newly_created_item_id) { 1212 }
-    let(:method_name) { "test_method_name" }
-    let(:data_to_create) do
-      { test: "1", expression: "{11a:{22:.33(44)}" }
-    end
+    ).and_return([
+                   { "triggerid" => "44", "description" => "Old label",
+                     "tags" => [{ "tag" => "service", "value" => "wan" }] }
+                 ])
+    allow(client).to receive(:api_request).with(
+      method: "trigger.update",
+      params: hash_including(
+        triggerid: "44",
+        description: "New label",
+        tags: include(
+          { tag: "service", value: "wan" },
+          { tag: "zabbix_manager_id", value: "interface:line-1:bandwidth" }
+        )
+      )
+    ).and_return("triggerids" => ["44"])
 
-    before do
-      allow(triggers_mock).to receive(:dump_by_id).with(test: "1").and_return(id_hash)
-      allow(triggers_mock).to receive(:symbolize_keys).with("test" => 1).and_return(dump)
-      allow(triggers_mock).to receive(:hash_equals?).with(dump, data).and_return(hash_equals)
-      allow(triggers_mock).to receive(:key).and_return(key)
-      allow(triggers_mock).to receive(:method_name).and_return(method_name)
-      allow(triggers_mock).to receive(:log)
-      allow(triggers_mock).to receive(:create).with(data_to_create).and_return(newly_created_item_id)
-      allow(client).to receive(:api_request).with(
-        method: "#{method_name}.update",
-        params: [
-          {
-            triggerid: data[:triggerid],
-            status: "1"
-          }
-        ]
-      ).and_return(result)
-    end
-
-    it "logs debug message" do
-      expect(triggers_mock).to receive(:log).with("[DEBUG] Call safe_update with parameters: #{data.inspect}")
-      subject
-    end
-
-    context "when dump and data hash are equal" do
-      it "logs debug message" do
-        expect(triggers_mock).to receive(:log).with('[DEBUG] Equal keys {:test=>"1", :triggerid=>7878, :expression=>"{.33(44)}"} and {:test=>"1", :triggerid=>7878, :expression=>"{.33(44)}"}, skip safe_update')
-        expect(triggers_mock).not_to receive(:log).with("[DEBUG] disable : #{result.inspect}")
-        subject
-      end
-
-      it "returns item_id" do
-        expect(subject).to eq 1
-      end
-    end
-
-    context "when dump and data hash are not equal" do
-      let(:hash_equals) { false }
-
-      it "logs debug message" do
-        expect(triggers_mock).not_to receive(:log).with(/[DEBUG] Equal keys/)
-        expect(triggers_mock).to receive(:log).with('[DEBUG] disable :"rtest"')
-        subject
-      end
-
-      it "returns newly created item_id" do
-        expect(subject).to eq newly_created_item_id
-      end
-    end
+    expect(
+      triggers.upsert_for_host(
+        hostid: 101,
+        managed_key: "interface:line-1:bandwidth",
+        description: "New label",
+        expression: "last(/router/key)>1",
+        tags: [{ tag: "managed_by", value: "zabbix_manager" }]
+      )
+    ).to eq(44)
   end
 
-  describe ".get_or_create" do
-    subject { triggers_mock.get_or_create(data) }
-
-    let(:data) { { description: "testdesc", hostid: "hostid" } }
-    let(:result) { [{ "testkey" => "111", "testidentify" => 1 }] }
-    let(:key) { "testkey" }
-    let(:identify) { "testidentify" }
-    let(:id) { nil }
-    let(:id_through_create) { 222 }
-
-    before do
-      allow(triggers_mock).to receive(:log)
-      allow(triggers_mock).to receive(:get_id).with(
-        description: data[:description],
-        hostid: data[:hostid]
-      ).and_return(id)
-      allow(triggers_mock).to receive(:create).with(data).and_return(id_through_create)
-    end
-
-    it "logs the debug message" do
-      expect(triggers_mock).to receive(:log).with("[DEBUG] Call get_or_create with parameters: #{data.inspect}")
-      subject
-    end
-
-    context "when ID already exist" do
-      let(:id) { "111" }
-
-      it "returns the existing ID" do
-        expect(subject).to eq id
-      end
-    end
-
-    context "when id does not exist" do
-      it "returns the newly created ID" do
-        expect(subject).to eq id_through_create
-      end
-    end
+  it "has no experimental fixture methods" do
+    expect(triggers).not_to respond_to(:mojo_data)
   end
 
-  describe ".create_or_update" do
-    subject { triggers_mock.create_or_update(data) }
+  it "拒绝采用多个同名历史触发器" do
+    allow(client).to receive(:api_request).and_return([
+                                                        { "triggerid" => "1" }, { "triggerid" => "2" }
+                                                      ])
 
-    let(:data) { { description: "testdesc", hostid: "hostid" } }
+    expect do
+      triggers.find_for_host(hostid: 101, description: "WAN high")
+    end.to raise_error(ZabbixManager::Conflict, /multiple triggers/)
+  end
 
-    before do
-      allow(triggers_mock).to receive(:log)
-      allow(triggers_mock).to receive(:get_or_create)
-    end
+  it "批量更新触发器状态" do
+    allow(client).to receive(:api_request).with(
+      method: "trigger.get",
+      params: { hostids: 101, triggerids: %w[1 2], output: ["triggerid"] }
+    ).and_return([{ "triggerid" => "1" }, { "triggerid" => "2" }])
+    allow(client).to receive(:api_request).with(
+      method: "trigger.update",
+      params: [{ triggerid: "1", status: 1 }, { triggerid: "2", status: 1 }]
+    ).and_return("triggerids" => %w[1 2])
 
-    it "logs debug message" do
-      expect(triggers_mock).to receive(:log).with("[DEBUG] Call create_or_update with parameters: #{data.inspect}")
-      subject
-    end
+    expect(triggers.set_status(hostid: 101, triggerids: [1, 2], enabled: false)).to eq([1, 2])
+  end
 
-    it "calls get_or_create function" do
-      expect(triggers_mock).to receive(:get_or_create).with(data)
-      subject
-    end
+  it "通过当前 trigger.update 接口完整替换依赖集合" do
+    allow(client).to receive(:api_request).with(
+      method: "trigger.get",
+      params: { hostids: 101, triggerids: ["9"], output: ["triggerid"] }
+    ).and_return([{ "triggerid" => "9" }])
+    allow(client).to receive(:api_request).with(
+      method: "trigger.get",
+      params: { hostids: 101, triggerids: %w[7 8], output: ["triggerid"] }
+    ).and_return([{ "triggerid" => "7" }, { "triggerid" => "8" }])
+    allow(client).to receive(:api_request).with(
+      method: "trigger.update",
+      params: { triggerid: "9", dependencies: [{ triggerid: "7" }, { triggerid: "8" }] }
+    ).and_return("triggerids" => ["9"])
+
+    expect(triggers.replace_dependencies(hostid: 101, triggerid: 9, depends_on: [7, 8])).to eq(9)
+  end
+
+  it "拒绝触发器依赖自身" do
+    expect(client).not_to receive(:api_request)
+
+    expect do
+      triggers.replace_dependencies(hostid: 101, triggerid: 9, depends_on: [9])
+    end.to raise_error(ZabbixManager::Invalid, /itself/)
+  end
+
+  it "追加依赖时保留并去重已有触发器依赖" do
+    allow(client).to receive(:api_request).with(
+      method: "trigger.get",
+      params: { hostids: 101, triggerids: ["9"], output: ["triggerid"] }
+    ).and_return([{ "triggerid" => "9" }])
+    allow(client).to receive(:api_request).with(
+      method: "trigger.get",
+      params: { hostids: 101, triggerids: %w[7 8], output: ["triggerid"] }
+    ).and_return([{ "triggerid" => "7" }, { "triggerid" => "8" }])
+    allow(client).to receive(:api_request).with(
+      method: "trigger.get",
+      params: { triggerids: "9", output: "extend", selectDependencies: ["triggerid"] }
+    ).and_return([{ "triggerid" => "9", "dependencies" => [{ "triggerid" => "7" }] }])
+    allow(client).to receive(:api_request).with(
+      method: "trigger.update",
+      params: { triggerid: "9", dependencies: [{ triggerid: "7" }, { triggerid: "8" }] }
+    ).and_return("triggerids" => ["9"])
+
+    expect(triggers.add_dependencies(hostid: 101, triggerid: 9, depends_on: [7, 8])).to eq(9)
+    expect(client).to have_received(:with_upsert_lock).with("trigger-dependencies:9")
+  end
+
+  it "创建响应丢失时按管理键回读而不重放写请求" do
+    lookup = {
+      hostids: 101,
+      tags: [{ tag: "zabbix_manager_id", value: "interface:line-1:bandwidth", operator: 1 }],
+      output: ["triggerid", "description"],
+      selectTags: "extend"
+    }
+    allow(client).to receive(:api_request).with(method: "trigger.get", params: lookup)
+                                          .and_return([], [{ "triggerid" => "44" }])
+    allow(client).to receive(:api_request).with(method: "trigger.create", params: anything)
+                                          .and_raise(ZabbixManager::TransportError, "response lost")
+
+    result = triggers.upsert_for_host(
+      hostid: 101, managed_key: "interface:line-1:bandwidth",
+      description: "WAN high", expression: "last(/router/key)>1"
+    )
+
+    expect(result).to eq(44)
+    expect(client).to have_received(:api_request).with(method: "trigger.create", params: anything).once
+  end
+
+  it "创建响应丢失且无法回读时返回结果不确定异常" do
+    allow(client).to receive(:api_request).with(method: "trigger.get", params: anything).and_return([])
+    allow(client).to receive(:api_request).with(method: "trigger.create", params: anything)
+                                          .and_raise(ZabbixManager::TransportError, "response lost")
+
+    expect do
+      triggers.upsert_for_host(
+        hostid: 101, managed_key: "interface:line-1:bandwidth",
+        description: "WAN high", expression: "last(/router/key)>1"
+      )
+    end.to raise_error(ZabbixManager::ResultUnknown, /must not|before retrying|result is unknown/)
+    expect(client).to have_received(:api_request).with(method: "trigger.create", params: anything).once
   end
 end

@@ -22,18 +22,7 @@ describe "ZabbixManager::Mediatypes" do
     subject { mediatypes_mock.default_options }
 
     let(:result) do
-      {
-        name: "",
-        description: "",
-        type: 0,
-        smtp_server: "",
-        smtp_helo: "",
-        smtp_email: "",
-        exec_path: "",
-        gsm_modem: "",
-        username: "",
-        passwd: ""
-      }
+      { type: 0 }
     end
 
     it { is_expected.to eq result }

@@ -13,7 +13,7 @@ zbx.hosts.create(
     {
       :type => 1,
       :main => 1,
-      :ip => '10.0.0.1',
+      :ip => '192.0.2.10',
       :dns => 'server.example.org',
       :port => 10050,
       :useip => 0
@@ -23,13 +23,13 @@ zbx.hosts.create(
 )
 
 #or use:
-zbx.hosts.create_or_update(
+zbx.hosts.reconcile(
   :host => host.fqdn,
   :interfaces => [
     {
       :type => 1,
       :main => 1,
-      :ip => '10.0.0.1',
+      :ip => '192.0.2.10',
       :dns => 'server.example.org',
       :port => 10050,
       :useip => 0
@@ -46,7 +46,7 @@ hosts = [
 ]
 
 hosts.each do |h|
-  zbx.hosts.create_or_update(
+  zbx.hosts.reconcile(
     :host => h[:hostname],
     :interfaces => [
       {
@@ -98,7 +98,7 @@ zbx.hosts.update({
     {
       :type => 1,
       :main => 1,
-      :ip => '10.0.0.1',
+      :ip => '192.0.2.10',
       :dns => 'server.example.org',
       :port => 10050,
       :useip => 0

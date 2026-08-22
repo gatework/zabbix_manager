@@ -2,26 +2,26 @@
 
 class ZabbixManager
   class Graphs < Basic
-    # The method name used for interacting with Graphs via Zabbix API
+    # 返回图形对象对应的 Zabbix API 方法前缀。
     #
     # @return [String]
     def method_name
       "graph"
     end
 
-    # The id field name used for identifying specific Graph objects via Zabbix API
+    # 返回图形对象用于业务识别的字段名。
     #
     # @return [String]
     def identify
       "name"
     end
 
-    # Get full/extended Graph data from Zabbix API
+    # 按名称搜索并获取图形的完整数据。
     #
-    # @param data [Hash] Should include object's id field name (identify) and id value
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Hash]
+    # @param data [Hash] 包含图形识别字段及其值的查询条件
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务端返回非成功 HTTP 状态时抛出
+    # @return [Hash] 匹配的图形完整数据
     def get_full_data(data)
       log "[DEBUG] Call get_full_data with parameters: #{data.inspect}"
 
@@ -36,12 +36,12 @@ class ZabbixManager
       )
     end
 
-    # Get Graph ids for Host from Zabbix API
+    # 获取指定主机的图形 ID，并可按名称片段进一步过滤。
     #
-    # @param data [Hash] Should include host value to query for matching graphs
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Array] Returns array of Graph ids
+    # @param data [Hash] 包含 host，且可包含 filter 的查询条件
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务端返回非成功 HTTP 状态时抛出
+    # @return [Array] 匹配的图形 ID 列表
     def get_ids_by_host(data)
       result = @client.api_request(
         method: "graph.get",
@@ -54,20 +54,20 @@ class ZabbixManager
       )
 
       result.filter_map do |graph|
-        num  = graph["graphid"]
+        num = graph["graphid"]
         name = graph["name"]
         filter = data[:filter]
 
-        num if filter.nil? || /#{filter}/ =~ name
+        num if filter.nil? || name.include?(filter.to_s)
       end
     end
 
-    # Get Graph Item object using Zabbix API
+    # 获取指定图形包含的图形监控项。
     #
-    # @param data [Hash] Needs to include graphids to properly identify Graph Items via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Hash]
+    # @param data [Hash, String, Integer] 图形 ID
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务端返回非成功 HTTP 状态时抛出
+    # @return [Hash] 图形监控项数据
     def get_items(data)
       @client.api_request(
         method: "graphitem.get",
@@ -78,36 +78,12 @@ class ZabbixManager
       )
     end
 
-    # Get or Create Graph object using Zabbix API
-    #
-    # @param data [Hash] Needs to include name and templateid to properly identify Graphs via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
-    def get_or_create(data)
-      log "[DEBUG] Call get_or_create with parameters: #{data.inspect}"
-
-      unless (id = get_id(name: data[:name], templateid: data[:templateid]))
-        id = create(data)
-      end
-
-      id
-    end
-
-    # Create or update Graph object using Zabbix API
-    #
-    # @param data [Hash] Needs to include name and templateid to properly identify Graphs via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
-    def create_or_update(data)
-      graphid = get_id(name: data[:name], templateid: data[:templateid])
-      graphid ? _update(data.merge(graphid: graphid)) : create(data)
-    end
-
-    def _update(data)
-      data.delete(:name)
-      update(data)
+    # 生成由图形名称和所属模板构成的稳定查询条件。
+    # @param data [Hash] 包含 name 和 templateid 的图形属性
+    # @return [Hash] 图形唯一查询条件
+    def identity_filter(data)
+      attributes = data.deep_symbolize_keys
+      { name: attributes.fetch(:name), templateid: attributes.fetch(:templateid) }
     end
   end
 end

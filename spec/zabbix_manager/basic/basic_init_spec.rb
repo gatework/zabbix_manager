@@ -18,7 +18,7 @@ describe "ZabbixManager::Basic" do
     subject { basic_mock.method_name }
 
     it "raises an ApiError with message" do
-      expect { subject }.to raise_error(ZabbixManager::ApiError, "Can't call method_name here")
+      expect { subject }.to raise_error(ZabbixManager::Invalid, "Can't call method_name here")
     end
   end
 
@@ -54,7 +54,7 @@ describe "ZabbixManager::Basic" do
     subject { basic_mock.identify }
 
     it "raises an ApiError with message" do
-      expect { subject }.to raise_error(ZabbixManager::ApiError, "Can't call identify here")
+      expect { subject }.to raise_error(ZabbixManager::Invalid, "Can't call identify here")
     end
   end
 end

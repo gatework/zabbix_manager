@@ -2,55 +2,37 @@
 
 class ZabbixManager
   class HttpTests < Basic
-    # The method name used for interacting with HttpTests via Zabbix API
+    # 返回 Web 场景对象对应的 Zabbix API 方法前缀。
     #
     # @return [String]
     def method_name
       "httptest"
     end
 
-    # The id field name used for identifying specific HttpTest objects via Zabbix API
+    # 返回 Web 场景用于业务识别的字段名。
     #
     # @return [String]
     def identify
       "name"
     end
 
-    # The default options used when creating HttpTest objects via Zabbix API
+    # 返回创建 Web 场景时使用的默认步骤列表。
     #
-    # @return [Hash]
+    # @return [Hash] Web 场景默认属性
     def default_options
       {
-        hostid: nil,
-        name: nil,
         steps: []
       }
     end
 
-    # Get or Create HttpTest object using Zabbix API
+    # 生成由 Web 场景名称和所属主机构成的稳定查询条件。
     #
-    # @param data [Hash] Needs to include name and hostid to properly identify HttpTests via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
-    def get_or_create(data)
-      log "[DEBUG] Call get_or_create with parameters: #{data.inspect}"
-
-      unless (id = get_id(name: data[:name], hostid: data[:hostid]))
-        id = create(data)
-      end
-      id
-    end
-
-    # Create or update HttpTest object using Zabbix API
-    #
-    # @param data [Hash] Needs to include name and hostid to properly identify HttpTests via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
-    def create_or_update(data)
-      httptestid = get_id(name: data[:name], hostid: data[:hostid])
-      httptestid ? update(data.merge(httptestid: httptestid)) : create(data)
+    # @param data [Hash] 包含 name 和 hostid 的 Web 场景属性
+    # @raise [KeyError] 缺少 name 或 hostid 时抛出
+    # @return [Hash] Web 场景唯一查询条件
+    def identity_filter(data)
+      attributes = data.deep_symbolize_keys
+      { name: attributes.fetch(:name), hostid: attributes.fetch(:hostid) }
     end
   end
 end

@@ -2,62 +2,49 @@
 
 class ZabbixManager
   class Templates < Basic
-    # The method name used for interacting with Templates via Zabbix API
+    # 返回 Zabbix API 中模板对象的方法名前缀。
     #
-    # @return [String]
+    # @return [String] 模板对象的方法名前缀
     def method_name
       "template"
     end
 
-    # The id field name used for identifying specific Template objects via Zabbix API
+    # 返回用于唯一识别模板的业务字段名。
     #
-    # @return [String]
+    # @return [String] 模板对象的业务标识字段名
     def identify
       "host"
     end
 
-    # Delete Template object using Zabbix API
+    # 删除指定模板并返回首个已删除模板的 ID。
     #
-    # @param data [Array] Should include array of templateid's
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] The Template object id that was deleted
+    # @param data [Array] 要删除的 templateid 数组
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer, nil] 已删除模板的 ID，无结果时返回 nil
     def delete(data)
       result = @client.api_request(method: "template.delete", params: [data])
       result.empty? ? nil : result["templateids"][0].to_i
     end
 
-    # Get Template ids for Host from Zabbix API
+    # 根据查询条件获取模板 ID 列表。
     #
-    # @param data [Hash] Should include host value to query for matching templates
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Array] Returns array of Template ids
+    # @param data [Hash] Zabbix template.get 查询参数
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Array<String>] 模板 ID 数组
     def get_ids_by_host(data)
       @client.api_request(method: "template.get", params: data).map do |tmpl|
         tmpl["templateid"]
       end
     end
 
-    # Get or Create Template object using Zabbix API
+    # 批量更新主机与模板的关联关系。
     #
-    # @param data [Hash] Needs to include host to properly identify Templates via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
-    def get_or_create(data)
-      unless (templateid = get_id(host: data[:host]))
-        templateid = create(data)
-      end
-      templateid
-    end
-
-    # Mass update Templates for Hosts using Zabbix API
-    #
-    # @param data [Hash] Should include hosts_id array and templates_id array
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Boolean]
+    # @param data [Hash] 包含 hosts_id 和 templates_id 数组
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Boolean] API 是否返回有效结果
     def mass_update(data)
       result = @client.api_request(
         method: "template.massUpdate",
@@ -69,12 +56,12 @@ class ZabbixManager
       result.empty? ? false : true
     end
 
-    # Mass add Templates to Hosts using Zabbix API
+    # 批量为主机添加模板关联。
     #
-    # @param data [Hash] Should include hosts_id array and templates_id array
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Boolean]
+    # @param data [Hash] 包含 hosts_id 和 templates_id 数组
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Boolean] API 是否返回有效结果
     def mass_add(data)
       result = @client.api_request(
         method: "template.massAdd",
@@ -86,12 +73,12 @@ class ZabbixManager
       result.empty? ? false : true
     end
 
-    # Mass remove Templates to Hosts using Zabbix API
+    # 批量移除主机的模板或主机组关联。
     #
-    # @param data [Hash] Should include hosts_id array and templates_id array
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Boolean]
+    # @param data [Hash] 包含 hosts_id、templates_id 及可选 group_id
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Boolean] API 是否返回有效结果
     def mass_remove(data)
       result = @client.api_request(
         method: "template.massRemove",
@@ -105,21 +92,22 @@ class ZabbixManager
       result.empty? ? false : true
     end
 
-    # 新增 get_template_id 方法，使用列表 flatten 功能拉平数组对象
+    # 按模板技术名称查询，并返回可直接用于主机或模板更新的引用对象。
+    #
+    # @param data [String, Array<String>] 一个或多个模板技术名称
+    # @return [Array<Hash>, nil] templateid 引用数组，未找到时返回 nil
     def get_template_ids(data)
-      # 直接调后端接口
       result = @client.api_request(
         method: "template.get",
         params: {
           output: "extend",
           filter: {
-            host: [data].flatten
+            host: Array(data)
           }
         }
-      ).map { |temp| [templateid: temp["templateid"]] }
+      ).map { |template| { templateid: template.fetch("templateid") } }
 
-      # 返回 template 模板数组对象
-      result.empty? ? nil : result.flatten
+      result.presence
     end
   end
 end

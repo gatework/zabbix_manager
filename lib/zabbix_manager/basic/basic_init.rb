@@ -2,47 +2,49 @@
 
 class ZabbixManager
   class Basic
-    # Initializes a new Basic object with ZabbixManager Client
+    # 使用 ZabbixManager 客户端初始化基础资源对象。
     #
-    # @param client [ZabbixManager::Client]
-    # @return [ZabbixManager::Client]
+    # @param client [ZabbixManager::Client] API 客户端
+    # @return [ZabbixManager::Basic] 基础资源对象
     def initialize(client)
       @client = client
     end
 
-    # Placeholder for inherited objects to provide object-specific method name
+    # 定义资源对应的 API 方法名占位，要求子类覆盖。
     #
-    # @raise [ManagerError] Basic object does not directly support method_name
+    # @raise [ApiError] 基础类不能直接提供方法名时抛出
+    # @return [String] API 方法名
     def method_name
-      raise ManagerError, "Can't call method_name here"
+      raise Invalid, "Can't call method_name here"
     end
 
-    # Placeholder for inherited objects to provide default options
+    # 返回资源创建时使用的默认选项，子类可按需覆盖。
     #
-    # @return [Hash]
+    # @return [Hash] 默认选项
     def default_options
       {}
     end
 
-    # Returns the object's plural id field name (identify) based on key
+    # 根据单数 ID 字段名生成 API 返回结果中的复数字段名。
     #
-    # @return [String]
+    # @return [String] 复数 ID 字段名
     def keys
       "#{key}s"
     end
 
-    # Returns the object's id field name (identify) based on method_name + id
+    # 根据 API 方法名生成对象 ID 字段名。
     #
-    # @return [String]
+    # @return [String] 对象 ID 字段名
     def key
       "#{method_name}id"
     end
 
-    # Placeholder for inherited objects to provide object-specific id field name
+    # 定义资源业务标识字段占位，要求子类覆盖。
     #
-    # @raise [ManagerError] Basic object does not directly support identify
+    # @raise [ApiError] 基础类不能直接提供标识字段时抛出
+    # @return [String] 业务标识字段名
     def identify
-      raise ManagerError, "Can't call identify here"
+      raise Invalid, "Can't call identify here"
     end
   end
 end

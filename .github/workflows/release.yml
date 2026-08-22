@@ -1,0 +1,37 @@
+name: Release Gem
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  release:
+    name: 发布 RubyGem
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+      - name: 运行发布前门禁
+        run: bundle exec rake
+      - name: 校验标签与 Gem 版本一致
+        run: |
+          gem_version=$(ruby -Ilib -rzabbix_manager/version -e 'print ZabbixManager::VERSION')
+          test "v${gem_version}" = "${GITHUB_REF_NAME}"
+      - name: 构建并安装发布候选 Gem
+        run: |
+          mkdir -p pkg
+          gem build zabbix_manager.gemspec --output pkg/zabbix_manager-${GITHUB_REF_NAME#v}.gem
+          gem install ./pkg/zabbix_manager-${GITHUB_REF_NAME#v}.gem --no-document
+          ruby -e 'require "zabbix_manager"; abort unless ZabbixManager::Triggers.instance_methods.include?(:add_dependencies)'
+      - name: 配置 RubyGems 可信发布凭据
+        uses: rubygems/configure-rubygems-credentials@dc5a8d8553e6ee01fc26761a49e99e733d17954a # v2.1.0
+      - name: 发布到 RubyGems
+        run: gem push ./pkg/zabbix_manager-${GITHUB_REF_NAME#v}.gem

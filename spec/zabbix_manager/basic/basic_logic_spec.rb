@@ -87,7 +87,7 @@ describe "ZabbixManager::Basic" do
 
     context "when ID already exists" do
       it "calls update" do
-        expect(basic_mock).to receive(:update).with(test: 1, key: "1")
+        expect(basic_mock).to receive(:update).with({ test: 1, key: 1 })
         subject
       end
     end
@@ -108,13 +108,12 @@ describe "ZabbixManager::Basic" do
     let(:data) { { test: "1" } }
     let(:force) { false }
     let(:id_hash) { [{ "test" => 1 }, { "test2" => 2 }] }
-    let(:dump) { { test: "1" } }
+    let(:dump) { { test: 1 } }
     let(:hash_equals) { true }
     let(:operation_name) { "update" }
 
     before do
       allow(basic_mock).to receive(:dump_by_id).with(test: "1").and_return(id_hash)
-      allow(basic_mock).to receive(:symbolize_keys).with("test" => 1).and_return(test: "1")
       allow(basic_mock).to receive(:hash_equals?).with(dump, data).and_return(hash_equals)
       allow(basic_mock).to receive(:key).and_return("test")
     end
@@ -285,7 +284,6 @@ describe "ZabbixManager::Basic" do
     before do
       allow(basic_mock).to receive(:key).and_return(key)
       allow(basic_mock).to receive(:identify).and_return(identify)
-      allow(basic_mock).to receive(:symbolize_keys).with(data).and_return(symbolized_data)
       allow(client).to receive(:api_request).with(
         method: "#{method_name}.get",
         params: {
@@ -301,9 +299,8 @@ describe "ZabbixManager::Basic" do
     end
 
     context "when data has `identify` as a key" do
-      it "symbolizes the data" do
-        expect(basic_mock).to receive(:symbolize_keys).with(data)
-        subject
+      it "accepts string-keyed data through ActiveSupport key normalization" do
+        expect(subject).to eq id
       end
 
       it "returns the id from the response" do
@@ -314,9 +311,8 @@ describe "ZabbixManager::Basic" do
     context "when data does not have `identify` as a key" do
       let(:identify) { "wrongtestidentify" }
 
-      it "symbolizes the data" do
-        expect(basic_mock).not_to receive(:symbolize_keys).with(data)
-        expect { subject }.to raise_error(ZabbixManager::ApiError, "#{identify} not supplied in call to get_id")
+      it "rejects data without the identifying key" do
+        expect { subject }.to raise_error(ZabbixManager::Invalid, "#{identify} not supplied in call to get_id")
       end
     end
   end

@@ -2,38 +2,41 @@
 
 class ZabbixManager
   class Basic
-    # Get Zabbix object data from API by id
+    # 按标识字段从 Zabbix API 获取对象完整数据。
     #
-    # @param data [Hash] Should include object's id field name (identify) and id value
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Hash]
+    # @param data [Hash] 包含对象标识字段及其值
+    # @raise [ApiError] Zabbix API 调用失败时抛出
+    # @raise [TransportError] Zabbix 服务端返回非 200 状态时抛出
+    # @return [Hash] 对象完整数据
     def get(data)
       get_full_data(data)
     end
 
-    # Add new Zabbix object using API create
+    # 通过 Zabbix API 创建对象。
     #
-    # @param data [Hash]
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] The object id if a single object is created
-    # @return [Boolean] True/False if multiple objects are created
+    # @param data [Hash] 待创建的对象属性
+    # @raise [ApiError] Zabbix API 调用失败时抛出
+    # @raise [TransportError] Zabbix 服务端返回非 200 状态时抛出
+    # @return [Integer] 创建单个对象时返回对象 ID
+    # @return [Boolean] 创建多个对象时返回操作结果
     def add(data)
       create(data)
     end
 
-    # Destroy Zabbix object using API delete
+    # 通过 Zabbix API 删除对象。
     #
-    # @param data [Hash] Should include object's id field name (identify) and id value
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] The object id if a single object is deleted
-    # @return [Boolean] True/False if multiple objects are deleted
+    # @param data [Hash] 包含对象标识字段及其值
+    # @raise [ApiError] Zabbix API 调用失败时抛出
+    # @raise [TransportError] Zabbix 服务端返回非 200 状态时抛出
+    # @return [Integer] 删除单个对象时返回对象 ID
+    # @return [Boolean] 删除多个对象时返回操作结果
     def destroy(data)
       delete(data)
     end
 
+    # 返回子类对应的 Zabbix API 方法名；由具体资源类实现。
+    #
+    # @return [String, nil] API 方法名
     def method_name; end
   end
 end

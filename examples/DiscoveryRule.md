@@ -11,7 +11,7 @@ zbx.drules.create(
   :name => 'zabbix agent discovery',
   :delay => '1800', # discover new machines every 30min
   :status => '0', # action is enabled
-  :iprange => '192.168.0.0/24', # iprange to discover zabbix agents in
+  :iprange => '192.0.2.0/24', # RFC 5737 documentation range
   :dchecks => [{
     :type => '9', # zabbix agent
     :uniq => '0', # (default) do not use this check as a uniqueness criteria

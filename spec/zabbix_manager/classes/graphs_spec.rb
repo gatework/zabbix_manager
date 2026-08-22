@@ -173,7 +173,7 @@ describe "ZabbixManager::Graphs" do
       allow(graphs_mock).to receive(:get_id)
         .with(name: data[:name], templateid: data[:templateid]).and_return(id)
       allow(graphs_mock).to receive(:create).with(data).and_return(id_through_create)
-      allow(graphs_mock).to receive(:_update).with(update_data).and_return(id)
+      allow(graphs_mock).to receive(:update).with(update_data).and_return(id)
     end
 
     context "when Graph ID already exist" do
@@ -188,21 +188,6 @@ describe "ZabbixManager::Graphs" do
       it "creates an object returns the newly created object ID" do
         expect(subject).to eq id_through_create
       end
-    end
-  end
-
-  describe "._update" do
-    subject { graphs_mock._update(data) }
-
-    let(:data) { { name: "batman", templateid: 1234 } }
-    let(:id) { "111" }
-
-    before do
-      allow(graphs_mock).to receive(:update).with(templateid: 1234).and_return(id)
-    end
-
-    it "updates an object returns the Graph ID" do
-      expect(subject).to eq id
     end
   end
 end

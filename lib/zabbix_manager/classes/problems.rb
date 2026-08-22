@@ -2,42 +2,40 @@
 
 class ZabbixManager
   class Problems < Basic
-    # The method name used for interacting with Hosts via Zabbix API
+    # 返回问题对象对应的 Zabbix API 方法前缀。
     #
     # @return [String]
     def method_name
       "problem"
     end
 
-    # The id field name used for identifying specific Problem objects via Zabbix API
+    # 返回问题对象用于业务识别的字段名。
     #
     # @return [String]
     def identify
       "name"
     end
 
-    # The key field name used for Problem objects via Zabbix API
-    # However, Problem object does not have a unique identifier
+    # 返回问题对象的兼容 ID 字段名；问题对象本身没有独立的唯一标识。
     #
     # @return [String]
     def key
       "problemid"
     end
 
-    # Returns the object's plural id field name (identify) based on key
-    # However, Problem object does not have a unique identifier
+    # 返回问题对象的复数兼容 ID 字段名。
     #
     # @return [String]
     def keys
       "problemids"
     end
 
-    # Dump Problem object data by key from Zabbix API
+    # 按识别字段查询问题对象的完整数据。
     #
-    # @param data [Hash] Should include desired object's key and value
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Hash]
+    # @param data [Hash] 包含问题识别字段及其值的查询条件
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务端返回非成功 HTTP 状态时抛出
+    # @return [Hash] 匹配的问题数据
     def dump_by_id(data)
       log "[DEBUG] Call dump_by_id with parameters: #{data.inspect}"
 
@@ -52,83 +50,57 @@ class ZabbixManager
       )
     end
 
-    # Get full/extended Problem data from Zabbix API
+    # 获取问题及其确认、标签和抑制信息，并支持附加查询参数。
     #
-    # @param data [Hash] Should include object's id field name (identify) and id value
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Hash]
+    # @param data [Hash] 问题过滤条件及附加 API 参数
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务端返回非成功 HTTP 状态时抛出
+    # @return [Hash] 匹配的问题完整数据
     def get_full_data(data)
       log "[DEBUG] Call get_full_data with parameters: #{data.inspect}"
 
-      data = symbolize_keys(data)
+      data = data.deep_symbolize_keys
+      params = {
+        recent: false,
+        sortfield: ["eventid"],
+        sortorder: "DESC",
+        output: "extend",
+        selectAcknowledges: "extend",
+        selectTags: "extend",
+        selectSuppressionData: "extend"
+      }.merge(data.except(:name).compact)
+      params[:filter] = { identify.to_sym => data[identify.to_sym] } if data[identify.to_sym].present?
 
       @client.api_request(
         method: "#{method_name}.get",
-        params: {
-          filter: {
-            identify.to_sym => data[identify.to_sym]
-          },
-          eventids: data[:eventids] || nil,
-          groupids: data[:groupids] || nil,
-          hostids: data[:hostids] || nil,
-          objectids: data[:objectids] || nil,
-          applicationids: data[:applicationids] || nil,
-          tags: data[:tags] || nil,
-          time_from: data[:time_from] || nil,
-          time_till: data[:time_till] || nil,
-          eventid_from: data[:eventid_from] || nil,
-          eventid_till: data[:eventid_till] || nil,
-          recent: data[:recent] || false,
-          sortfield: data[:sortfield] || ["eventid"],
-          sortorder: data[:sortorder] || "DESC",
-          countOutput: data[:countOutput] || nil,
-          output: "extend",
-          selectAcknowledges: "extend",
-          selectTags: "extend",
-          selectSuppressionData: "extend"
-        }
+        params: params
       )
     end
 
-    # Get full/extended Zabbix data for Problem objects from API
+    # 获取全部问题对象的完整数据。
     #
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Array<Hash>] Array of matching objects
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务端返回非成功 HTTP 状态时抛出
+    # @return [Array<Hash>] 匹配的问题对象列表
     def all
       get_full_data({})
     end
 
-    def remove_problem
-      # 设置时间区间
-      time_from = 180.days.ago.at_beginning_of_day.to_i
-      time_till = 14.days.ago.at_beginning_of_day.to_i
+    # 批量确认事件，可指定确认动作和附加消息。
+    # @param eventids [Array<String, Integer>, String, Integer] 待确认的事件 ID
+    # @param action [Integer] Zabbix 确认动作位掩码
+    # @param message [String, nil] 可选确认消息
+    # @return [Hash] 事件确认结果
+    def acknowledge_events(eventids, action: 2, message: nil)
+      ids = Array(eventids).map(&:to_s).reject(&:blank?).uniq
+      raise Invalid, "eventids are required" if ids.empty?
 
-      # 抓取制定区间的数据
-      data      = get_full_data(time_from: time_from, time_till: time_till)
-      event_ids = []
-
-      # 收集所有的 eventid
-      data.each do |item|
-        event_ids << item["eventid"]
-      end
-
-      # 返回 event_ids
-      ack_event event_ids
-    end
-
-    def ack_event(eventids)
-      # 请求后端
       @client.api_request(
         method: "event.acknowledge",
-        params: {
-          eventids: eventids,
-          action: 2,
-          message: "由 RUBY SCRIPT 自动关闭"
-        }
+        params: { eventids: ids, action: action, message: message }.compact
       )
-      # 返回运行结果
     end
+
+    alias ack_event acknowledge_events
   end
 end

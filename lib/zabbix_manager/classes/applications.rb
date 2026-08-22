@@ -2,44 +2,26 @@
 
 class ZabbixManager
   class Applications < Basic
-    # The method name used for interacting with Applications via Zabbix API
+    # 返回应用集对象对应的 Zabbix API 方法前缀。
     #
     # @return [String]
     def method_name
       "application"
     end
 
-    # The id field name used for identifying specific Application objects via Zabbix API
+    # 返回应用集对象用于业务识别的字段名。
     #
     # @return [String]
     def identify
       "name"
     end
 
-    # Get or Create Application object using Zabbix API
-    #
-    # @param data [Hash] Needs to include name and hostid to properly identify Applications via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
-    def get_or_create(data)
-      log "[DEBUG] Call get_or_create with parameters: #{data.inspect}"
-
-      unless (id = get_id(name: data[:name], hostid: data[:hostid]))
-        id = create(data)
-      end
-      id
-    end
-
-    # Create or update Application object using Zabbix API
-    #
-    # @param data [Hash] Needs to include name and hostid to properly identify Applications via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
-    def create_or_update(data)
-      applicationid = get_id(name: data[:name], hostid: data[:hostid])
-      applicationid ? update(data.merge(applicationid: applicationid)) : create(data)
+    # 生成由应用集名称和所属主机构成的稳定查询条件。
+    # @param data [Hash] 包含 name 和 hostid 的应用集属性
+    # @return [Hash] 应用集唯一查询条件
+    def identity_filter(data)
+      attributes = data.deep_symbolize_keys
+      { name: attributes.fetch(:name), hostid: attributes.fetch(:hostid) }
     end
   end
 end

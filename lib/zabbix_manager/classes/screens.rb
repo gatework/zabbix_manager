@@ -2,7 +2,7 @@
 
 class ZabbixManager
   class Screens < Basic
-    # extracted from frontends/php/include/defines.inc.php
+    # 以下资源类型取自 frontends/php/include/defines.inc.php。
     # SCREEN_RESOURCE_GRAPH => 0,
     # SCREEN_RESOURCE_SIMPLE_GRAPH => 1,
     # SCREEN_RESOURCE_MAP => 2,
@@ -21,59 +21,61 @@ class ZabbixManager
     # SCREEN_RESOURCE_SYSTEM_STATUS => 15,
     # SCREEN_RESOURCE_HOST_TRIGGERS => 16
 
-    # The method name used for interacting with Screens via Zabbix API
+    # 返回 Zabbix API 中聚合图形对象的方法名前缀。
     #
-    # @return [String]
+    # @return [String] 聚合图形对象的方法名前缀
     def method_name
       "screen"
     end
 
-    # The id field name used for identifying specific Screen objects via Zabbix API
+    # 返回用于唯一识别聚合图形的业务字段名。
     #
-    # @return [String]
+    # @return [String] 聚合图形的业务标识字段名
     def identify
       "name"
     end
 
-    # Delete Screen object using Zabbix API
+    # 删除指定聚合图形并返回首个已删除对象的 ID。
     #
-    # @param data [String, Array] Should include id's of the screens to delete
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
+    # @param data [String, Array] 要删除的聚合图形 ID
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer, nil] 已删除聚合图形的 ID，无结果时返回 nil
     def delete(data)
       result = @client.api_request(method: "screen.delete", params: [data])
       result.empty? ? nil : result["screenids"][0].to_i
     end
 
-    # Get or Create Screen object for Host using Zabbix API
+    # 按名称获取聚合图形，不存在时按图形 ID 网格化创建。
     #
-    # @param data [Hash] Needs to include screen_name and graphids to properly identify Screens via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
+    # @param data [Hash] 包含 screen_name、graphids 及可选布局参数
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer] 聚合图形 ID
     def get_or_create_for_host(data)
       screen_name = data[:screen_name]
-      graphids = data[:graphids]
-      screenitems = []
-      hsize = data[:hsize] || 3
+      graphids = Array(data[:graphids])
+      raise Invalid, "screen_name is required" if screen_name.blank?
+      raise Invalid, "graphids must contain at least one graph" if graphids.empty?
+
+      hsize = positive_hsize(data.fetch(:hsize, 3))
+
       valign = data[:valign] || 2
       halign = data[:halign] || 2
       rowspan = data[:rowspan] || 1
       colspan = data[:colspan] || 1
-      height = data[:height] || 320 # default 320
-      width = data[:width] || 200 # default 200
-      vsize = data[:vsize] || [1, (graphids.size / hsize).to_i].max
+      height = data[:height] || 320
+      width = data[:width] || 200
+      vsize = data[:vsize] || graphids.length.fdiv(hsize).ceil
       screenid = get_id(name: screen_name)
 
       unless screenid
-        # Create screen
-        graphids.each_with_index do |graphid, index|
-          screenitems << {
+        screenitems = graphids.each_with_index.map do |graphid, index|
+          {
             resourcetype: 0,
             resourceid: graphid,
-            x: (index % hsize).to_i,
-            y: (index % graphids.size / hsize).to_i,
+            x: index % hsize,
+            y: index / hsize,
             valign: valign,
             halign: halign,
             rowspan: rowspan,
@@ -92,5 +94,20 @@ class ZabbixManager
       end
       screenid
     end
+
+    private
+
+      # 将横向格数转换为正整数，非法值直接拒绝。
+      #
+      # @param value [Object] 待校验的横向格数
+      # @return [Integer] 正整数横向格数
+      def positive_hsize(value)
+        size = Integer(value)
+        raise Invalid unless size.positive?
+
+        size
+      rescue ArgumentError, TypeError
+        raise Invalid, "hsize must be a positive integer"
+      end
   end
 end

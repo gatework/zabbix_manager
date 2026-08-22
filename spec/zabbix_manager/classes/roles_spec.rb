@@ -30,80 +30,15 @@ describe "ZabbixManager::Roles" do
     it { is_expected.to eq "roleids" }
   end
 
-  # TODO: fix Roles Spec tests
-  # describe '.add_role' do
-  #   subject { roles_mock.add_role(data) }
+  describe ".rules" do
+    it "passes the Zabbix role rules object through and returns the role id" do
+      rules = { ui: [{ name: "monitoring.hosts", status: "1" }] }
+      allow(client).to receive(:api_request).with(
+        method: "role.update",
+        params: { roleid: 12, rules: rules }
+      ).and_return("roleids" => ["12"])
 
-  #   let(:data) { { userids: [123, 111], usrgrpids: [4, 5] } }
-  #   let(:result) { { 'usrgrpids' => [9090] } }
-  #   let(:key) { 'testkey' }
-  #   let(:permission) { 3 }
-
-  #   before do
-  #     roles = data[:usrgrpids].map do |t|
-  #       {
-  #         userids: data[:userids],
-  #         usrgrpid: t,
-  #       }
-  #     end
-  #     allow(roles_mock).to receive(:log)
-  #     allow(roles_mock).to receive(:key).and_return(key)
-  #     allow(client).to receive(:api_request).with(
-  #       method: 'usergroup.update',
-  #       params: user_groups
-  #     ).and_return(result)
-  #   end
-
-  #   context 'when returns result with roles' do
-  #     it 'returns first roleid' do
-  #       expect(subject).to eq 9090
-  #     end
-  #   end
-
-  #   context 'when api returns nil result' do
-  #     let(:result) { nil }
-
-  #     it 'returns nil' do
-  #       expect(subject).to be_nil
-  #     end
-  #   end
-  # end
-
-  # describe '.update_roles' do
-  #   subject { roles_mock.update_users(data) }
-
-  #   let(:data) { { userids: [123, 111], usrgrpids: [4, 5] } }
-  #   let(:result) { { 'roleids' => [9090] } }
-  #   let(:key) { 'testkey' }
-  #   let(:permission) { 3 }
-
-  #   before do
-  #     roles = data[:roleids].map do |t|
-  #       {
-  #         userids: data[:userids],
-  #         usrgrpid: t,
-  #       }
-  #     end
-  #     allow(roles_mock).to receive(:log)
-  #     allow(roles_mock).to receive(:key).and_return(key)
-  #     allow(client).to receive(:api_request).with(
-  #       method: 'usergroup.update',
-  #       params: roles,
-  #     ).and_return(result)
-  #   end
-
-  #   context 'when returns result with roles' do
-  #     it 'returns first roleid' do
-  #       expect(subject).to eq 9090
-  #     end
-  #   end
-
-  #   context 'when api returns nil result' do
-  #     let(:result) { nil }
-
-  #     it 'returns nil' do
-  #       expect(subject).to be_nil
-  #     end
-  #   end
-  # end
+      expect(roles_mock.rules(roleid: 12, rules: rules)).to eq(12)
+    end
+  end
 end

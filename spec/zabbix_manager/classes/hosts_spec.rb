@@ -2,131 +2,110 @@
 
 require "spec_helper"
 
-describe "ZabbixManager::Hosts" do
-  let(:hosts_mock) { ZabbixManager::Hosts.new(client) }
-  let(:client) { double }
+RSpec.describe ZabbixManager::Hosts do
+  let(:client) { instance_double(ZabbixManager::Client, options: { debug: false }) }
+  let(:hosts) { described_class.new(client) }
 
-  describe ".method_name" do
-    subject { hosts_mock.method_name }
+  before { allow(client).to receive(:with_upsert_lock).and_yield }
 
-    it { is_expected.to eq "host" }
+  it "has no experimental mojo methods or hard-coded SNMP community" do
+    expect(hosts).not_to respond_to(:mojo_delete)
+    expect(hosts).not_to respond_to(:update_mojo)
+    expect(hosts.default_options).to eq(status: 0, inventory_mode: 1)
   end
 
-  describe ".identify" do
-    subject { hosts_mock.identify }
+  it "creates a host from explicit groups and interfaces" do
+    attributes = {
+      host: "router-01",
+      groups: [{ groupid: 20 }],
+      interfaces: [{
+        type: 2, main: 1, useip: 1, ip: "192.0.2.1", dns: "", port: "161",
+        details: { version: 2, community: "{$SNMP_COMMUNITY}" }
+      }]
+    }
+    allow(client).to receive(:api_request)
+      .with(method: "host.create", params: hash_including(attributes))
+      .and_return("hostids" => ["10101"])
 
-    it { is_expected.to eq "host" }
+    expect(hosts.create(attributes)).to eq(10_101)
   end
 
-  describe ".dump_by_id" do
-    subject { hosts_mock.dump_by_id(data) }
-
-    let(:data) { { testkey: 222 } }
-    let(:result) { { test: 1 } }
-    let(:key) { "testkey" }
-
-    before do
-      allow(hosts_mock).to receive(:log)
-      allow(hosts_mock).to receive(:key).and_return(key)
-      allow(client).to receive(:api_request).with(
-        method: "host.get",
-        params: {
-          filter: {
-            testkey: 222
-          },
-          output: "extend",
-          selectGroups: "shorten"
-        }
-      ).and_return(result)
-    end
-
-    it "logs debug message" do
-      expect(hosts_mock).to receive(:log).with("[DEBUG] Call dump_by_id with parameters: #{data.inspect}")
-      subject
-    end
-
-    it { is_expected.to eq result }
+  it "requires explicit groups and interfaces for a new host" do
+    expect { hosts.create(host: "router-01", groups: []) }.to raise_error(ArgumentError, /groups/)
+    expect { hosts.create(host: "router-01", groups: [{ groupid: 20 }]) }.to raise_error(ArgumentError, /interfaces/)
   end
 
-  describe ".default_options" do
-    subject { hosts_mock.default_options }
+  it "updates host metadata and reconciles existing and new interfaces without mutating input" do
+    input = {
+      host: "router-01",
+      name: "Core router",
+      interfaces: [
+        { interfaceid: 12, type: 2, main: 1, useip: 1, ip: "192.0.2.10", port: "161" },
+        { type: 1, main: 1, useip: 1, ip: "192.0.2.11", port: "10050" }
+      ]
+    }
+    original = Marshal.load(Marshal.dump(input))
+    allow(hosts).to receive(:get_id).with(host: "router-01").and_return(10_101)
+    allow(client).to receive(:api_request)
+      .with(method: "host.update", params: { host: "router-01", name: "Core router", hostid: 10_101 })
+      .and_return("hostids" => ["10101"])
+    allow(client).to receive(:api_request)
+      .with(method: "hostinterface.get", params: { hostids: 10_101, output: "extend" })
+      .and_return([{
+                    "interfaceid" => "12", "type" => "2", "main" => "1", "useip" => "1",
+                    "ip" => "192.0.2.10", "dns" => "", "port" => "161"
+                  }])
+    allow(client).to receive(:api_request)
+      .with(method: "hostinterface.update", params: hash_including(interfaceid: "12", ip: "192.0.2.10"))
+      .and_return("interfaceids" => ["12"])
+    allow(client).to receive(:api_request)
+      .with(method: "hostinterface.create", params: hash_including(hostid: 10_101, ip: "192.0.2.11"))
+      .and_return("interfaceids" => ["13"])
 
-    let(:result) do
-      {
-        host: nil,
-        interfaces: [],
-        status: 0,
-        available: 1,
-        groups: [],
-        proxy_hostid: nil
-      }
-    end
-
-    it { is_expected.to eq result }
+    expect(hosts.reconcile(input)).to eq(10_101)
+    expect(input).to eq(original)
   end
 
-  describe ".unlink_templates" do
-    subject { hosts_mock.unlink_templates(data) }
+  it "creates a missing host through the same reconciliation API" do
+    input = {
+      host: "router-01",
+      groups: [{ groupid: 20 }],
+      interfaces: [{
+        type: 2, main: 1, useip: 1, ip: "192.0.2.1", dns: "", port: "161",
+        details: { version: 2, community: "{$SNMP_COMMUNITY}" }
+      }]
+    }
+    allow(hosts).to receive(:get_id).with(host: "router-01").and_return(nil)
+    allow(hosts).to receive(:create).with(input).and_return(10_101)
 
-    let(:data) { { hosts_id: 222, templates_id: 333 } }
-    let(:result) { { test: 1 } }
-    let(:key) { "testkey" }
-
-    before do
-      allow(hosts_mock).to receive(:log)
-      allow(hosts_mock).to receive(:key).and_return(key)
-      allow(client).to receive(:api_request).with(
-        method: "host.massRemove",
-        params: {
-          hostids: data[:hosts_id],
-          templates: data[:templates_id]
-        }
-      ).and_return(result)
-    end
-
-    context "when result is an empty hash" do
-      let(:result) { {} }
-
-      it { is_expected.to be_falsy }
-    end
-
-    context "when result is not an empty hash" do
-      it { is_expected.to be_truthy }
-    end
+    expect(hosts.reconcile(input)).to eq(10_101)
   end
 
-  describe ".create_or_update" do
-    subject { hosts_mock.create_or_update(data) }
+  it "rejects duplicate desired interfaces before updating the host" do
+    interface = { type: 2, main: 0, useip: 1, ip: "192.0.2.20", port: "161" }
+    allow(hosts).to receive(:get_id).with(host: "router-01").and_return(10_101)
+    expect(client).not_to receive(:api_request)
 
-    let(:data) { { host: "batman" } }
-    let(:result) { [{ "testkey" => "111", "testidentify" => 1 }] }
-    let(:key) { "testkey" }
-    let(:identify) { "testidentify" }
-    let(:id) { nil }
-    let(:id_through_create) { 222 }
-    let(:update_data) { { host: "batman", hostid: 1234 } }
+    expect do
+      hosts.reconcile(host: "router-01", interfaces: [interface, interface.dup])
+    end.to raise_error(ArgumentError, /duplicate desired interface identity/)
+  end
 
-    before do
-      allow(hosts_mock).to receive(:log)
-      allow(hosts_mock).to receive(:identify).and_return(identify)
-      allow(hosts_mock).to receive(:get_id)
-        .with(host: data[:host]).and_return(id)
-      allow(hosts_mock).to receive(:create).with(data).and_return(id_through_create)
-      allow(hosts_mock).to receive(:update).with(update_data).and_return(id)
-    end
-
-    context "when Host ID already exist" do
-      let(:id) { 1234 }
-
-      it "updates an object returns the Host ID" do
-        expect(subject).to eq id
+  it "rejects line candidates that resolve to different hosts" do
+    allow(client).to receive(:api_request) do |request|
+      filter = request.dig(:params, :filter)
+      case filter
+      when { host: "router-01" }
+        [{ "hostid" => "10101", "host" => "router-01" }]
+      when { host: "192.0.2.10" }
+        [{ "hostid" => "20202", "host" => "router-02" }]
+      else
+        []
       end
     end
 
-    context "when Host ID does not exist" do
-      it "creates an object returns the newly created object ID" do
-        expect(subject).to eq id_through_create
-      end
-    end
+    expect do
+      hosts.find_by_candidates(["router-01", "192.0.2.10"])
+    end.to raise_error(ZabbixManager::Conflict, /multiple hosts/)
   end
 end

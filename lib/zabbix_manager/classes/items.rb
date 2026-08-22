@@ -2,151 +2,224 @@
 
 class ZabbixManager
   class Items < Basic
-    # The method name used for interacting with Items via Zabbix API
+    DEFAULT_OPTIONS = {
+      delay: "1m",
+      history: "1h",
+      status: 0,
+      value_type: 3
+    }.freeze
+    ITEM_TYPES = [0, 2, 3, 5, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22].freeze
+    REQUIRED_INTERFACE_TYPES = [0, 12, 16, 17, 20].freeze
+    REQUIRED_PARAMS_TYPES = [11, 13, 14, 15, 21, 22].freeze
+
+    # 返回监控项对应的 Zabbix API 模块名。
     #
     # @return [String]
     def method_name
       "item"
     end
 
-    # The id field name used for identifying specific Item objects via Zabbix API
+    # 使用名称作为通用 CRUD 的业务标识。
     #
     # @return [String]
     def identify
       "name"
     end
 
-    # The default options used when creating Item objects via Zabbix API
+    # 返回创建监控项时的克制默认值。
     #
     # @return [Hash]
     def default_options
-      {
-        name:                  nil,
-        key_:                  nil,
-        hostid:                nil,
-        delay:                 60,
-        history:               3600,
-        status:                0,
-        type:                  7,
-        snmp_community:        "",
-        snmp_oid:              "",
-        value_type:            3,
-        data_type:             0,
-        trapper_hosts:         "localhost",
-        snmp_port:             161,
-        units:                 "",
-        multiplier:            0,
-        delta:                 0,
-        snmpv3_securityname:   "",
-        snmpv3_securitylevel:  0,
-        snmpv3_authpassphrase: "",
-        snmpv3_privpassphrase: "",
-        formula:               0,
-        trends:                86_400,
-        logtimefmt:            "",
-        valuemapid:            0,
-        delay_flex:            "",
-        authtype:              0,
-        username:              "",
-        password:              "",
-        publickey:             "",
-        privatekey:            "",
-        params:                "",
-        ipmi_sensor:           ""
-      }
+      DEFAULT_OPTIONS.dup
     end
 
-    # Get or Create Item object using Zabbix API
+    # 使用主机和名称组成通用 CRUD 的查询边界。
     #
     # @param data [Hash] Needs to include name and hostid to properly identify Items via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
+    # @raise [ApiError] Error returned when there is a problem with the Zabbix API call.
+    # @raise [TransportError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
     # @return [Integer] Zabbix object id
-    def get_or_create(data)
-      log "[DEBUG] Call get_or_create with parameters: #{data.inspect}"
+    def identity_filter(data)
+      attributes = data.deep_symbolize_keys
+      { name: attributes.fetch(:name), hostid: attributes.fetch(:hostid) }
+    end
 
-      unless (id = get_id(name: data[:name], hostid: data[:hostid]))
-        id = create(data)
+    # 查询主机监控项，可按稳定 key 集合过滤并选择关联对象。
+    # @return [Array<Hash>]
+    def for_host(hostid, keys: nil, output: "extend", select_preprocessing: nil, select_tags: nil)
+      raise Invalid, "hostid is required" if hostid.blank?
+
+      params = { hostids: hostid, output: output }
+      params[:filter] = { key_: keys } if keys.present?
+      params[:selectPreprocessing] = select_preprocessing if select_preprocessing
+      params[:selectTags] = select_tags if select_tags
+      @client.api_request(method: "item.get", params: params)
+    end
+
+    # 按主机和稳定 key 查询唯一监控项。
+    # @return [Hash, nil]
+    def find_by_key(hostid:, key:)
+      result = for_host(hostid, keys: key, output: ["itemid", "key_", "name"])
+      raise Conflict, "multiple items use key #{key} on host #{hostid}" if result.length > 1
+
+      result.first
+    end
+
+    # 按 hostid + key_ 幂等创建或更新监控项。
+    # @return [Integer]
+    def upsert_by_key(data)
+      attributes = validate_item!(data)
+
+      current = find_by_key(hostid: attributes[:hostid], key: attributes[:key_])
+      if current
+        itemid = current.fetch("itemid")
+        @client.api_request(
+          method: "item.update",
+          params: attributes.except(:hostid).merge(itemid: itemid)
+        )
+        itemid.to_i
+      else
+        create_attributes = default_options.merge(attributes)
+        validate_create_item!(create_attributes)
+        result = @client.api_request(method: "item.create", params: create_attributes)
+        result.fetch("itemids").first.to_i
       end
-      id
     end
 
-    # Create or update Item object using Zabbix API
-    #
-    # @param data [Hash] Needs to include name and hostid to properly identify Items via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
-    def create_or_update(data)
-      itemid = get_id(name: data[:name], hostid: data[:hostid])
-      itemid ? update(data.merge(itemid: itemid)) : create(data)
+    # 先校验整批数据，再按稳定 key 逐项幂等写入。
+    # @return [Array<Integer>]
+    def upsert_many(collection)
+      items = Array(collection).map { |data| validate_item!(data) }
+      identities = items.map { |item| [item[:hostid].to_s, item[:key_].to_s] }
+      duplicate = identities.tally.find { |_identity, count| count > 1 }&.first
+      raise Invalid, "duplicate hostid + key_ identity #{duplicate.join(":")}" if duplicate
+
+      items.map { |item| upsert_by_key(item) }
     end
 
-    # 根据设备名称和接口名字查询监控项 | 15809 | GigabitEthernet1/0/12
-    def get_interface_items(hostid, name)
-      # 自动剔除收尾空白字串
-      _name = name&.gsub(%r{[^/0-9]}, "")&.strip
-      iface = "#{_name}("
-
-      # 模糊查询接口下所有监控项，同时过滤出特定的 snmp_oid
+    # 批量启用或停用监控项。
+    # @return [Array<Integer>]
+    def set_status(hostid:, itemids:, enabled:)
+      ids = normalized_ids(itemids, "itemids")
+      verify_host_ownership!(hostid, ids)
       result = @client.api_request(
-        method: "item.get",
-        params: {
-          # output:  ["itemid", "name", "snmp_oid", "key_", "triggerids"],
-          output:  "extend",
-          hostids: hostid,
-          search:  {
-            name: iface
-          }
-        }
-      ).select {
-        |item| item["snmp_oid"].match?(/(1.3.6.1.2.1.31.1.1.1.(6|10|15)|1.3.6.1.2.1.2.2.1.8)./)
-      }.sort_by {
-        |item| item["key_"]
-      }
-
-      # 检查是是否存在
-      result.empty? ? nil : result
-    end
-
-    # 创建单个 dns item
-    def create_dns_item(hostid, dns_name)
-      # 字串内插
-      item_name = "【DNS域名解析监控】#{dns_name}"
-      item_key_ = "net.dns.record[,#{dns_name},A,2,2]"
-
-      # 请求绑定 dns 监控项到特定的 hostid
-      result = @client.api_request(
-        method: "item.create",
-        params: {
-          hostid: hostid,
-          name:   item_name,
-          key_:   item_key_,
-          # 代表 zabbix_agent
-          type: 0,
-          # 代表字符串
-          value_type: 1,
-          # 固定参数
-          delay:    "1m",
-          history:  "90d",
-          lifetime: "30d",
-          timeout:  "3s"
-        }
+        method: "item.update",
+        params: ids.map { |itemid| { itemid: itemid, status: enabled ? 0 : 1 } }
       )
-      p "成功创建 dns监控 #{dns_name}"
-    rescue StandardError
-      p "创建 dns监控 #{dns_name} 异常"
+      Array(result.fetch("itemids")).map(&:to_i)
     end
 
-    # 查询某个监控项具体信息
-    def get_item_info
-      result = @client.api_request(
+    # 批量删除明确指定的监控项。
+    # @return [Array<Integer>]
+    def delete_many(hostid:, itemids:)
+      ids = normalized_ids(itemids, "itemids")
+      verify_host_ownership!(hostid, ids)
+      result = @client.api_request(method: "item.delete", params: ids)
+      Array(result.fetch("itemids")).map(&:to_i)
+    end
+
+    # 返回主机中可能表示接口流量的已启用监控项。
+    # 方向和接口精确匹配由 Monitoring 业务层负责。
+    # @return [Array<Hash>]
+    def monitored_traffic_candidates(hostid)
+      @client.api_request(
         method: "item.get",
         params: {
-          output:  "extend",
-          hostids: "16914"
+          hostids: [hostid],
+          monitored: true,
+          output: %w[itemid hostid name key_ snmp_oid value_type status units],
+          selectPreprocessing: "extend",
+          sortfield: "name",
+          sortorder: "ASC"
         }
       )
     end
+
+    # 按主机接口幂等创建或更新 DNS 解析监控项，并返回监控项 ID。
+    # DNS 名称会进入 item key，因此拒绝可能改变 key 参数结构的分隔符。
+    # @return [Integer]
+    def upsert_dns_item(hostid:, interfaceid:, dns_name:)
+      name = dns_name.to_s.strip
+      raise Invalid, "dns_name is required" if name.blank?
+      raise Invalid, "dns_name contains unsupported item key delimiters" if name.match?(/[\[\],]/)
+
+      itemid = upsert_by_key(
+        hostid: hostid,
+        interfaceid: interfaceid,
+        name: "【DNS域名解析监控】#{name}",
+        key_: "net.dns.record[,#{name},A,2,2]",
+        type: 0,
+        value_type: 1,
+        delay: "1m",
+        history: "90d",
+        timeout: "3s"
+      )
+      log "Ensured DNS monitoring item for #{name}"
+      itemid
+    rescue StandardError => e
+      log "Failed to ensure DNS monitoring item: #{e.class}"
+      raise
+    end
+
+    private
+
+      # 规范化并校验幂等写入所需字段。
+      # @return [Hash]
+      # @api private
+      def validate_item!(data)
+        attributes = data.deep_symbolize_keys
+        raise Invalid, "hostid is required" if attributes[:hostid].blank?
+        raise Invalid, "key_ is required" if attributes[:key_].blank?
+        raise Invalid, "name is required" if attributes[:name].blank?
+
+        attributes
+      end
+
+      # 校验 item.create 的通用必填字段和 SNMP 条件字段。
+      def validate_create_item!(attributes)
+        raise Invalid, "type is required when creating an item" if attributes[:type].blank?
+        raise Invalid, "value_type is required when creating an item" if attributes[:value_type].blank?
+
+        type = Integer(attributes[:type])
+        raise Invalid, "unsupported item type #{type}" unless ITEM_TYPES.include?(type)
+
+        if REQUIRED_INTERFACE_TYPES.include?(type) && attributes[:interfaceid].blank?
+          raise Invalid, "interfaceid is required for item type #{type}"
+        end
+        if REQUIRED_PARAMS_TYPES.include?(type) && attributes[:params].blank?
+          raise Invalid, "params is required for item type #{type}"
+        end
+
+        raise Invalid,
+              "master_itemid is required for a dependent item" if type == 18 && attributes[:master_itemid].blank?
+        raise Invalid, "url is required for an HTTP item" if type == 19 && attributes[:url].blank?
+        return unless type == 20
+
+        raise Invalid, "snmp_oid is required for an SNMP item" if attributes[:snmp_oid].blank?
+      rescue ArgumentError, TypeError
+        raise Invalid, "type must be a supported integer"
+      end
+
+      # 回查监控项归属，阻止共享高权限令牌跨主机修改。
+      def verify_host_ownership!(hostid, ids)
+        raise Invalid, "hostid is required" if hostid.blank?
+
+        result = @client.api_request(
+          method: "item.get", params: { hostids: hostid, itemids: ids, output: ["itemid"] }
+        )
+        owned_ids = result.map { |item| item.fetch("itemid").to_s }
+        foreign_ids = ids - owned_ids
+        raise Conflict, "items do not belong to host #{hostid}: #{foreign_ids.join(", ")}" if foreign_ids.any?
+      end
+
+      # 统一批量 ID 并拒绝空集合。
+      # @return [Array<String>]
+      # @api private
+      def normalized_ids(values, name)
+        ids = Array(values).filter_map { |value| value.to_s.strip.presence }.uniq
+        raise Invalid, "#{name} are required" if ids.empty?
+
+        ids
+      end
   end
 end

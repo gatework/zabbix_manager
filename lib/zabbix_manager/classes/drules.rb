@@ -2,56 +2,28 @@
 
 class ZabbixManager
   class Drules < Basic
-    # The method name used for interacting with Drules via Zabbix API
+    # 返回网络发现规则对应的 Zabbix API 方法前缀。
     #
     # @return [String]
     def method_name
       "drule"
     end
 
-    # The id field name used for identifying specific Drule objects via Zabbix API
+    # 返回网络发现规则用于业务识别的字段名。
     #
     # @return [String]
     def identify
       "name"
     end
 
-    # The default options used when creating Drule objects via Zabbix API
+    # 返回创建网络发现规则时使用的默认周期和启用状态。
     #
-    # @return [Hash]
+    # @return [Hash] 网络发现规则默认属性
     def default_options
       {
-        name: nil,
-        iprange: nil,
-        delay: 3600,
+        delay: "1h",
         status: 0
       }
-    end
-
-    # Get or Create Drule object using Zabbix API
-    #
-    # @param data [Hash] Needs to include name to properly identify Drule via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
-    def get_or_create(data)
-      log "[DEBUG] Call get_or_create with parameters: #{data.inspect}"
-
-      unless (id = get_id(name: data[:name]))
-        id = create(data)
-      end
-      id
-    end
-
-    # Create or update Drule object using Zabbix API
-    #
-    # @param data [Hash] Needs to include name to properly identify Drules via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
-    def create_or_update(data)
-      druleid = get_id(name: data[:name])
-      druleid ? update(data.merge(druleid: druleid)) : create(data)
     end
   end
 end

@@ -99,13 +99,14 @@ describe "ZabbixManager::Applications" do
       end
     end
 
-    context "when an API request raise HttpError" do
+    context "when an API request raise TransportError" do
       before do
-        allow(actions_mock).to receive(:create).with(data).and_raise(ZabbixManager::HttpError, "HttpError occured.")
+        allow(actions_mock).to receive(:create).with(data).and_raise(ZabbixManager::TransportError,
+                                                                     "TransportError occured.")
       end
 
-      it "propogates the HttpError raise by an API" do
-        expect { subject }.to raise_error(ZabbixManager::HttpError, "HttpError occured.")
+      it "propogates the TransportError raise by an API" do
+        expect { subject }.to raise_error(ZabbixManager::TransportError, "TransportError occured.")
       end
     end
   end

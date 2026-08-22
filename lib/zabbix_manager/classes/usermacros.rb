@@ -2,160 +2,152 @@
 
 class ZabbixManager
   class Usermacros < Basic
-    # The id field name used for identifying specific User macro objects via Zabbix API
+    # 返回用于唯一识别用户宏的业务字段名。
     #
-    # @return [String]
+    # @return [String] 用户宏的业务标识字段名
     def identify
       "macro"
     end
 
-    # The method name used for interacting with User macros via Zabbix API
+    # 返回 Zabbix API 中用户宏对象的方法名前缀。
     #
-    # @return [String]
+    # @return [String] 用户宏对象的方法名前缀
     def method_name
       "usermacro"
     end
 
-    # Get User macro object id from Zabbix API based on provided data
+    # 按宏名称及主机条件查询主机宏 ID。
     #
-    # @param data [Hash] Needs to include macro to properly identify user macros via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call or missing object's id field name (identify).
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
+    # @param data [Hash] 包含 macro 及可选主机过滤条件
+    # @raise [ApiError] Zabbix API 调用失败或缺少标识字段时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer, nil] 主机宏 ID，未找到时返回 nil
     def get_id(data)
       log "[DEBUG] Call get_id with parameters: #{data.inspect}"
 
-      # symbolize keys if the user used string keys instead of symbols
-      data = symbolize_keys(data) if data.key?(identify)
-      # raise an error if identify name was not supplied
+      # 兼容字符串键输入。
+      data = data.deep_symbolize_keys if data.key?(identify)
+      # 标识字段缺失时拒绝继续查询。
       name = data[identify.to_sym]
-      raise ManagerError, "#{identify} not supplied in call to get_id" if name.nil?
+      raise Invalid, "#{identify} not supplied in call to get_id" if name.nil?
 
       result = request(data, "usermacro.get", "hostmacroid")
 
       !result.empty? && result[0].key?("hostmacroid") ? result[0]["hostmacroid"].to_i : nil
     end
 
-    # Get Global macro object id from Zabbix API based on provided data
+    # 按宏名称查询全局宏 ID。
     #
-    # @param data [Hash] Needs to include macro to properly identify global macros via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call or missing object's id field name (identify).
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
+    # @param data [Hash] 包含 macro 的全局宏过滤条件
+    # @raise [ApiError] Zabbix API 调用失败或缺少标识字段时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer, nil] 全局宏 ID，未找到时返回 nil
     def get_id_global(data)
       log "[DEBUG] Call get_id_global with parameters: #{data.inspect}"
 
-      # symbolize keys if the user used string keys instead of symbols
-      data = symbolize_keys(data) if data.key?(identify)
-      # raise an error if identify name was not supplied
+      # 兼容字符串键输入。
+      data = data.deep_symbolize_keys if data.key?(identify)
+      # 标识字段缺失时拒绝继续查询。
       name = data[identify.to_sym]
-      raise ManagerError, "#{identify} not supplied in call to get_id_global" if name.nil?
+      raise Invalid, "#{identify} not supplied in call to get_id_global" if name.nil?
 
       result = request(data, "usermacro.get", "globalmacroid")
 
       !result.empty? && result[0].key?("globalmacroid") ? result[0]["globalmacroid"].to_i : nil
     end
 
-    # Get full/extended User macro data from Zabbix API
+    # 获取匹配主机宏的完整数据。
     #
-    # @param data [Hash] Should include object's id field name (identify) and id value
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Hash]
+    # @param data [Hash] 主机宏过滤条件
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Array<Hash>] 匹配的主机宏数据
     def get_full_data(data)
       log "[DEBUG] Call get_full_data with parameters: #{data.inspect}"
 
       request(data, "usermacro.get", "hostmacroid")
     end
 
-    # Get full/extended Global macro data from Zabbix API
+    # 获取匹配全局宏的完整数据。
     #
-    # @param data [Hash] Should include object's id field name (identify) and id value
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Hash]
+    # @param data [Hash] 全局宏过滤条件
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Array<Hash>] 匹配的全局宏数据
     def get_full_data_global(data)
       log "[DEBUG] Call get_full_data_global with parameters: #{data.inspect}"
 
       request(data, "usermacro.get", "globalmacroid")
     end
 
-    # Create new User macro object using Zabbix API (with defaults)
+    # 创建主机宏并返回首个新建宏的 ID。
     #
-    # @param data [Hash] Needs to include hostid, macro, and value to create User macro via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] The object id if a single object is created
-    # @return [Boolean] True/False if multiple objects are created
+    # @param data [Hash] 包含 hostid、macro 和 value
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer, nil] 新建主机宏的 ID
     def create(data)
       request(data, "usermacro.create", "hostmacroids")
     end
 
-    # Create new Global macro object using Zabbix API (with defaults)
+    # 创建全局宏并返回首个新建宏的 ID。
     #
-    # @param data [Hash] Needs to include hostid, macro, and value to create Global macro via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] The object id if a single object is created
-    # @return [Boolean] True/False if multiple objects are created
+    # @param data [Hash] 包含 macro 和 value
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer, nil] 新建全局宏的 ID
     def create_global(data)
       request(data, "usermacro.createglobal", "globalmacroids")
     end
 
-    # Delete User macro object using Zabbix API
+    # 删除指定主机宏并返回首个已删除宏的 ID。
     #
-    # @param data [Hash] Should include hostmacroid's of User macros to delete
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] The object id if a single object is deleted
-    # @return [Boolean] True/False if multiple objects are deleted
+    # @param data [Hash, Integer, String] 要删除的 hostmacroid
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer, nil] 已删除主机宏的 ID
     def delete(data)
       data_delete = [data]
       request(data_delete, "usermacro.delete", "hostmacroids")
     end
 
-    # Delete Global macro object using Zabbix API
+    # 删除指定全局宏并返回首个已删除宏的 ID。
     #
-    # @param data [Hash] Should include hostmacroid's of Global macros to delete
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] The object id if a single object is deleted
-    # @return [Boolean] True/False if multiple objects are deleted
+    # @param data [Hash, Integer, String] 要删除的 globalmacroid
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer, nil] 已删除全局宏的 ID
     def delete_global(data)
       data_delete = [data]
       request(data_delete, "usermacro.deleteglobal", "globalmacroids")
     end
 
-    # Update User macro object using Zabbix API
+    # 更新主机宏并返回首个已更新宏的 ID。
     #
-    # @param data [Hash] Should include object's id field name (identify), id value, and fields to update
-    # @param force [Boolean] Whether to force an object update even if provided data matches Zabbix
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] The object id if a single object is created
-    # @return [Boolean] True/False if multiple objects are created
+    # @param data [Hash] 包含 hostmacroid 及待更新字段
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer, nil] 已更新主机宏的 ID
     def update(data)
       request(data, "usermacro.update", "hostmacroids")
     end
 
-    # Update Global macro object using Zabbix API
+    # 更新全局宏并返回首个已更新宏的 ID。
     #
-    # @param data [Hash] Should include object's id field name (identify), id value, and fields to update
-    # @param force [Boolean] Whether to force an object update even if provided data matches Zabbix
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] The object id if a single object is created
-    # @return [Boolean] True/False if multiple objects are created
+    # @param data [Hash] 包含 globalmacroid 及待更新字段
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer, nil] 已更新全局宏的 ID
     def update_global(data)
       request(data, "usermacro.updateglobal", "globalmacroids")
     end
 
-    # Get or Create User macro object using Zabbix API
+    # 按主机和宏名获取主机宏，不存在时创建。
     #
-    # @param data [Hash] Needs to include macro and hostid to properly identify User macros via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
+    # @param data [Hash] 包含 macro、hostid 及创建所需字段
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer] 主机宏 ID
     def get_or_create(data)
       log "[DEBUG] Call get_or_create with parameters: #{data.inspect}"
 
@@ -165,12 +157,12 @@ class ZabbixManager
       id
     end
 
-    # Get or Create Global macro object using Zabbix API
+    # 按宏名获取全局宏，不存在时创建。
     #
-    # @param data [Hash] Needs to include macro and hostid to properly identify Global macros via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
+    # @param data [Hash] 包含 macro 及创建所需字段
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer] 全局宏 ID
     def get_or_create_global(data)
       log "[DEBUG] Call get_or_create_global with parameters: #{data.inspect}"
 
@@ -180,39 +172,40 @@ class ZabbixManager
       id
     end
 
-    # Create or update User macro object using Zabbix API
+    # 按主机和宏名创建或更新主机宏。
     #
-    # @param data [Hash] Needs to include macro and hostid to properly identify User macros via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
+    # @param data [Hash] 包含 macro、hostid 及宏属性
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer] 主机宏 ID
     def create_or_update(data)
       hostmacroid = get_id(macro: data[:macro], hostid: data[:hostid])
       hostmacroid ? update(data.merge(hostmacroid: hostmacroid)) : create(data)
     end
 
-    # Create or update Global macro object using Zabbix API
+    # 按宏名创建或更新全局宏。
     #
-    # @param data [Hash] Needs to include macro and hostid to properly identify Global macros via Zabbix API
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
+    # @param data [Hash] 包含 macro 及宏属性
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer] 全局宏 ID
     def create_or_update_global(data)
       globalmacroid = get_id_global(macro: data[:macro], hostid: data[:hostid])
       globalmacroid ? update_global(data.merge(globalmacroid: globalmacroid)) : create_global(data)
     end
 
     private
-      # Custom request method to handle both User and Global macros in one
+
+      # 统一处理主机宏与全局宏请求，并按不同响应键提取结果。
       #
-      # @param data [Hash] Needs to include macro and hostid to properly identify Global macros via Zabbix API
-      # @param method [String] Zabbix API method to use for the request
-      # @param result_key [String] Which key to use for parsing results based on User vs Global macros
-      # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-      # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-      # @return [Integer] Zabbix object id
+      # @param data [Hash, Array] Zabbix API 请求参数
+      # @param method [String] 要调用的 Zabbix API 方法
+      # @param result_key [String] 用于解析主机宏或全局宏结果的字段名
+      # @raise [ApiError] Zabbix API 返回业务错误时抛出
+      # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+      # @return [Array<Hash>, Integer, nil] 查询结果或变更后的宏 ID
       def request(data, method, result_key)
-        # Zabbix has different result formats for gets vs updates
+        # Zabbix 查询与变更接口使用不同的响应格式。
         if method.include?(".get")
           if result_key.include?("global")
             @client.api_request(method: method, params: { globalmacro: true, filter: data })

@@ -2,33 +2,33 @@
 
 class ZabbixManager
   class Usergroups < Basic
-    # The method name used for interacting with Usergroups via Zabbix API
+    # 返回 Zabbix API 中用户组对象的方法名前缀。
     #
-    # @return [String]
+    # @return [String] 用户组对象的方法名前缀
     def method_name
       "usergroup"
     end
 
-    # The key field name used for Usergroup objects via Zabbix API
+    # 返回用户组对象的主键字段名。
     #
-    # @return [String]
+    # @return [String] 用户组对象的主键字段名
     def key
       "usrgrpid"
     end
 
-    # The id field name used for identifying specific Usergroup objects via Zabbix API
+    # 返回用于唯一识别用户组的业务字段名。
     #
-    # @return [String]
+    # @return [String] 用户组对象的业务标识字段名
     def identify
       "name"
     end
 
-    # Set permissions for usergroup using Zabbix API
+    # 更新用户组对主机组的访问权限。
     #
-    # @param data [Hash] Needs to include usrgrpids and hostgroupids along with permissions to set
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id (usergroup)
+    # @param data [Hash] 包含 usrgrpid、hostgroupids 及可选 permission
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer, nil] 已更新用户组的 ID
     def permissions(data)
       permission = data[:permission] || 2
       result = @client.api_request(
@@ -41,23 +41,23 @@ class ZabbixManager
       result ? result["usrgrpids"][0].to_i : nil
     end
 
-    # Add users to usergroup using Zabbix API
+    # 将用户加入用户组；兼容旧调用并委托给 update_users。
     #
-    # @deprecated Zabbix has removed massAdd in favor of update.
-    # @param data [Hash] Needs to include userids and usrgrpids to mass add users to groups
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id (usergroup)
+    # @deprecated Zabbix 已移除 massAdd，请使用 update_users。
+    # @param data [Hash] 包含 userids 和 usrgrpids
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer, nil] 已更新用户组的 ID
     def add_user(data)
       update_users(data)
     end
 
-    # Update users in usergroups using Zabbix API
+    # 批量替换指定用户组中的用户列表。
     #
-    # @param data [Hash] Needs to include userids and usrgrpids to mass update users in groups
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id (usergroup)
+    # @param data [Hash] 包含 userids 和 usrgrpids
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer, nil] 首个已更新用户组的 ID
     def update_users(data)
       user_groups = data[:usrgrpids].map do |t|
         {

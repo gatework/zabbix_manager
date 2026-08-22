@@ -23,4 +23,20 @@ describe "ZabbixManager::HostGroups" do
 
     it { is_expected.to eq "groupid" }
   end
+
+  describe ".get_or_create_hostgroups" do
+    it "looks up all names once and creates only missing groups" do
+      allow(client).to receive(:api_request).with(
+        method: "hostgroup.get",
+        params: { output: %w[groupid name], filter: { name: %w[Core Edge] } }
+      ).and_return([{ "groupid" => "10", "name" => "Core" }])
+      allow(client).to receive(:api_request).with(
+        method: "hostgroup.create", params: { name: "Edge" }
+      ).and_return("groupids" => ["11"])
+
+      expect(actions_mock.get_or_create_hostgroups(["Core", "Edge", "Core"])).to eq(
+        [{ groupid: "10" }, { groupid: "11" }]
+      )
+    end
+  end
 end

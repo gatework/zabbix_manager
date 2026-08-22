@@ -23,38 +23,10 @@ describe "ZabbixManager::Items" do
 
     let(:result) do
       {
-        name: nil,
-        key_: nil,
-        hostid: nil,
-        delay: 60,
-        history: 3600,
+        delay: "1m",
+        history: "1h",
         status: 0,
-        type: 7,
-        snmp_community: "",
-        snmp_oid: "",
-        value_type: 3,
-        data_type: 0,
-        trapper_hosts: "localhost",
-        snmp_port: 161,
-        units: "",
-        multiplier: 0,
-        delta: 0,
-        snmpv3_securityname: "",
-        snmpv3_securitylevel: 0,
-        snmpv3_authpassphrase: "",
-        snmpv3_privpassphrase: "",
-        formula: 0,
-        trends: 86400,
-        logtimefmt: "",
-        valuemapid: 0,
-        delay_flex: "",
-        authtype: 0,
-        username: "",
-        password: "",
-        publickey: "",
-        privatekey: "",
-        params: "",
-        ipmi_sensor: ""
+        value_type: 3
       }
     end
 
@@ -127,6 +99,82 @@ describe "ZabbixManager::Items" do
       it "creates an object returns the newly created object ID" do
         expect(subject).to eq id_through_create
       end
+    end
+  end
+
+  describe "高频批量操作" do
+    it "创建监控项时合并默认值并校验 type" do
+      allow(client).to receive(:api_request).with(
+        method: "item.get",
+        params: { hostids: 101, output: ["itemid", "key_", "name"], filter: { key_: "system.uptime" } }
+      ).and_return([])
+      allow(client).to receive(:api_request).with(
+        method: "item.create",
+        params: hash_including(hostid: 101, key_: "system.uptime", type: 0, value_type: 3, delay: "1m")
+      ).and_return("itemids" => ["11"])
+
+      expect(
+        items_mock.upsert_by_key(
+          hostid: 101, interfaceid: 12, key_: "system.uptime", name: "Uptime", type: 0
+        )
+      ).to eq(11)
+    end
+
+    it "通过主机接口幂等创建 DNS 解析监控项" do
+      allow(items_mock).to receive(:log)
+      allow(client).to receive(:api_request).with(
+        method: "item.get",
+        params: {
+          hostids: 101,
+          output: ["itemid", "key_", "name"],
+          filter: { key_: "net.dns.record[,resolver.example.test,A,2,2]" }
+        }
+      ).and_return([])
+      allow(client).to receive(:api_request).with(
+        method: "item.create",
+        params: hash_including(
+          hostid: 101,
+          interfaceid: 12,
+          key_: "net.dns.record[,resolver.example.test,A,2,2]",
+          type: 0
+        )
+      ).and_return("itemids" => ["13"])
+
+      expect(
+        items_mock.upsert_dns_item(
+          hostid: 101, interfaceid: 12, dns_name: "resolver.example.test"
+        )
+      ).to eq(13)
+    end
+
+    it "拒绝能够改变 DNS item key 结构的名称" do
+      allow(items_mock).to receive(:log)
+      expect(client).not_to receive(:api_request)
+
+      expect do
+        items_mock.upsert_dns_item(hostid: 101, interfaceid: 12, dns_name: "invalid,name")
+      end.to raise_error(ArgumentError, /unsupported item key delimiters/)
+    end
+
+    it "在写入前拒绝重复的 hostid 和 key_" do
+      expect(client).not_to receive(:api_request)
+      item = { hostid: 10_101, key_: "net.if.in[1]", name: "Inbound" }
+
+      expect { items_mock.upsert_many([item, item.dup]) }
+        .to raise_error(ArgumentError, /duplicate hostid \+ key_/)
+    end
+
+    it "批量更新监控项状态" do
+      allow(client).to receive(:api_request).with(
+        method: "item.get",
+        params: { hostids: 101, itemids: %w[11 12], output: ["itemid"] }
+      ).and_return([{ "itemid" => "11" }, { "itemid" => "12" }])
+      allow(client).to receive(:api_request).with(
+        method: "item.update",
+        params: [{ itemid: "11", status: 1 }, { itemid: "12", status: 1 }]
+      ).and_return("itemids" => %w[11 12])
+
+      expect(items_mock.set_status(hostid: 101, itemids: [11, 12], enabled: false)).to eq([11, 12])
     end
   end
 end

@@ -32,7 +32,6 @@ describe "ZabbixManager::Usermacros" do
       allow(usermacros_mock).to receive(:log)
       allow(usermacros_mock).to receive(:key).and_return(key)
       allow(usermacros_mock).to receive(:identify).and_return(identify)
-      allow(usermacros_mock).to receive(:symbolize_keys).with(data).and_return(symbolized_data)
       allow(usermacros_mock).to receive(:request).with(
         symbolized_data,
         "usermacro.get",
@@ -46,9 +45,8 @@ describe "ZabbixManager::Usermacros" do
     end
 
     context "when data has `identify` as a key" do
-      it "symbolizes the data" do
-        expect(usermacros_mock).to receive(:symbolize_keys).with(data)
-        subject
+      it "accepts string-keyed data through ActiveSupport key normalization" do
+        expect(subject).to eq id
       end
 
       it "returns the id from the response" do
@@ -65,9 +63,8 @@ describe "ZabbixManager::Usermacros" do
     context "when data does not have `identify` as a key" do
       let(:identify) { "wrongtestidentify" }
 
-      it "symbolizes the data" do
-        expect(usermacros_mock).not_to receive(:symbolize_keys).with(data)
-        expect { subject }.to raise_error(ZabbixManager::ApiError, "#{identify} not supplied in call to get_id")
+      it "rejects data without the identifying key" do
+        expect { subject }.to raise_error(ZabbixManager::Invalid, "#{identify} not supplied in call to get_id")
       end
     end
   end
@@ -86,7 +83,6 @@ describe "ZabbixManager::Usermacros" do
       allow(usermacros_mock).to receive(:log)
       allow(usermacros_mock).to receive(:key).and_return(key)
       allow(usermacros_mock).to receive(:identify).and_return(identify)
-      allow(usermacros_mock).to receive(:symbolize_keys).with(data).and_return(symbolized_data)
       allow(usermacros_mock).to receive(:request).with(
         symbolized_data,
         "usermacro.get",
@@ -100,9 +96,8 @@ describe "ZabbixManager::Usermacros" do
     end
 
     context "when data has `identify` as a key" do
-      it "symbolizes the data" do
-        expect(usermacros_mock).to receive(:symbolize_keys).with(data)
-        subject
+      it "accepts string-keyed data through ActiveSupport key normalization" do
+        expect(subject).to eq id
       end
 
       it "returns the id from the response" do
@@ -119,9 +114,8 @@ describe "ZabbixManager::Usermacros" do
     context "when data does not have `identify` as a key" do
       let(:identify) { "wrongtestidentify" }
 
-      it "symbolizes the data" do
-        expect(usermacros_mock).not_to receive(:symbolize_keys).with(data)
-        expect { subject }.to raise_error(ZabbixManager::ApiError, "#{identify} not supplied in call to get_id_global")
+      it "rejects data without the identifying key" do
+        expect { subject }.to raise_error(ZabbixManager::Invalid, "#{identify} not supplied in call to get_id_global")
       end
     end
   end
@@ -165,7 +159,9 @@ describe "ZabbixManager::Usermacros" do
     end
 
     it "logs the debug message" do
-      expect(usermacros_mock).to receive(:log).with("[DEBUG] Call get_full_data_global with parameters: #{data.inspect}")
+      expect(usermacros_mock).to receive(:log).with(
+        "[DEBUG] Call get_full_data_global with parameters: #{data.inspect}"
+      )
       subject
     end
 
@@ -294,7 +290,9 @@ describe "ZabbixManager::Usermacros" do
     end
 
     it "logs the debug message" do
-      expect(usermacros_mock).to receive(:log).with("[DEBUG] Call get_or_create_global with parameters: #{data.inspect}")
+      expect(usermacros_mock).to receive(:log).with(
+        "[DEBUG] Call get_or_create_global with parameters: #{data.inspect}"
+      )
       subject
     end
 
@@ -418,7 +416,6 @@ describe "ZabbixManager::Usermacros" do
 
       context "when result_key contains `global`" do
         before do
-          allow("globalmacroid").to receive(:include?).with("global").and_return(false)
           allow(client).to receive(:api_request).with(
             method: method,
             params: {

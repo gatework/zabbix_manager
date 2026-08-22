@@ -2,14 +2,14 @@
 
 class ZabbixManager
   class Maintenance < Basic
-    # The method name used for interacting with Maintenances via Zabbix API
+    # 返回维护期对象对应的 Zabbix API 方法前缀。
     #
     # @return [String]
     def method_name
       "maintenance"
     end
 
-    # The id field name used for identifying specific Maintenance objects via Zabbix API
+    # 返回维护期对象用于业务识别的字段名。
     #
     # @return [String]
     def identify

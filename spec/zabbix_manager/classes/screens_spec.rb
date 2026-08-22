@@ -72,14 +72,13 @@ describe "ZabbixManager::Screens" do
 
     context "when screen doesn't exist" do
       let(:existing_screen_id) { nil }
-      let(:index) { 0 }
       let(:screenitems) do
-        [
+        graphids.each_with_index.map do |graphid, index|
           {
             resourcetype: 0,
-            resourceid: 2222,
+            resourceid: graphid,
             x: (index % hsize).to_i,
-            y: (index % graphids.size / hsize).to_i,
+            y: index / hsize,
             valign: valign,
             halign: halign,
             rowspan: rowspan,
@@ -87,7 +86,7 @@ describe "ZabbixManager::Screens" do
             height: height,
             width: width
           }
-        ]
+        end
       end
 
       before do
@@ -107,10 +106,29 @@ describe "ZabbixManager::Screens" do
         let(:colspan) { 1 }
         let(:height) { 320 }
         let(:width) { 200 }
-        let(:vsize) { [1, (graphids.size / hsize).to_i].max }
+        let(:vsize) { graphids.length.fdiv(hsize).ceil }
 
         it "creates screen with default and rest of provided values" do
           expect(subject).to eq newly_created_screen_id
+        end
+      end
+
+      context "when the final row is only partially filled" do
+        let(:graphids) { [1, 2, 3, 4] }
+        let(:hsize) { 3 }
+        let(:valign) { 2 }
+        let(:halign) { 2 }
+        let(:rowspan) { 1 }
+        let(:colspan) { 1 }
+        let(:height) { 320 }
+        let(:width) { 200 }
+        let(:vsize) { 2 }
+
+        it "rounds vsize up and places the final graph on the next row" do
+          expect(subject).to eq newly_created_screen_id
+          expect(screens_mock).to have_received(:create).with(
+            hash_including(vsize: 2, screenitems: include(hash_including(resourceid: 4, x: 0, y: 1)))
+          )
         end
       end
 

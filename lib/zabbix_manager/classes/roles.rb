@@ -2,62 +2,54 @@
 
 class ZabbixManager
   class Roles < Basic
-    # The method name used for interacting with Role via Zabbix API
+    # 返回 Zabbix API 中角色对象的方法名前缀。
     #
-    # @return [String]
+    # @return [String] 角色对象的方法名前缀
     def method_name
       "role"
     end
 
-    # The key field name used for Role objects via Zabbix API
+    # 返回角色对象的主键字段名。
     #
-    # @return [String]
+    # @return [String] 角色对象的主键字段名
     def key
       "roleid"
     end
 
-    # The id field name used for identifying specific Role objects via Zabbix API
+    # 返回用于唯一识别角色的业务字段名。
     #
-    # @return [String]
+    # @return [String] 角色对象的业务标识字段名
     def identify
       "name"
     end
 
-    # Set permissions for usergroup using Zabbix API
+    # 更新指定角色的权限规则。
     #
-    # @param data [Hash] Needs to include usrgrpids and hostgroupids along with permissions to set
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id (usergroup)
+    # @param data [Hash] 包含 roleid 和 rules 的角色规则数据
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Integer] 已更新角色的 ID
     def rules(data)
-      rules = data[:rules] || 2
+      attributes = data.deep_symbolize_keys
+      raise Invalid, "roleid is required" if attributes[:roleid].blank?
+      raise Invalid, "rules is required" if attributes[:rules].blank?
+
       result = @client.api_request(
         method: "role.update",
         params: {
-          roleid: data[:roleid],
-          rules: data[:hostgroupids].map { |t| { permission: permission, id: t } }
+          roleid: attributes[:roleid],
+          rules: attributes[:rules]
         }
       )
-      result ? result["usrgrpids"][0].to_i : nil
+      result.fetch("roleids").first.to_i
     end
 
-    # Add users to usergroup using Zabbix API
+    # 按角色 ID 获取角色详情及完整规则。
     #
-    # @deprecated Zabbix has removed massAdd in favor of update.
-    # @param data [Hash] Needs to include userids and usrgrpids to mass add users to groups
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id (usergroup)
-    def add_user(data)
-      update_users(data)
-    end
-
-    # Dump Role object data by key from Zabbix API
-    #
-    # @param data [Hash] Should include desired object's key and value
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Hash]
+    # @param data [Hash] 包含 id 的查询参数
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Array<Hash>] 匹配的角色详情
     def dump_by_id(data)
       log "[DEBUG] Call dump_by_id with parameters: #{data.inspect}"
 
@@ -71,12 +63,12 @@ class ZabbixManager
       )
     end
 
-    # Get Role ids by Role Name from Zabbix API
+    # 按角色名称查询所有匹配的角色 ID。
     #
-    # @param data [Hash] Should include host value to query for matching graphs
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Array] Returns array of Graph ids
+    # @param data [Hash] 包含 name 的角色查询参数
+    # @raise [ApiError] Zabbix API 返回业务错误时抛出
+    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
+    # @return [Array<String>] 匹配的角色 ID 数组
     def get_ids_by_name(data)
       result = @client.api_request(
         method: "role.get",
@@ -91,26 +83,6 @@ class ZabbixManager
       result.filter_map do |rule|
         rule["roleid"]
       end
-    end
-
-    # Update users in Userroles using Zabbix API
-    #
-    # @param data [Hash] Needs to include userids and usrgrpids to mass update users in groups
-    # @raise [ManagerError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [HttpError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id (usergroup)
-    def update_users(data)
-      user_groups = data[:usrgrpids].map do |t|
-        {
-          usrgrpid: t,
-          userids: data[:userids]
-        }
-      end
-      result = @client.api_request(
-        method: "usergroup.update",
-        params: user_groups
-      )
-      result ? result["usrgrpids"][0].to_i : nil
     end
   end
 end

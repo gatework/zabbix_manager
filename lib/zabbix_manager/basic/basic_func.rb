@@ -2,87 +2,45 @@
 
 class ZabbixManager
   class Basic
-    # Log messages to stdout when debugging
+    # 将调试信息交给客户端结构化日志，并移除可能包含请求参数的片段。
     #
-    # @param message [String]
+    # @param message [String] 待记录的调试信息
+    # @return [void]
     def log(message)
-      puts message.to_s if @client.options[:debug]
+      return unless @client.options[:debug]
+
+      raw_message = message.to_s
+      safe_message = if raw_message.start_with?("[DEBUG]")
+                       raw_message[/\A\[DEBUG\]\s+Call\s+[a-z_]+/i] || "[DEBUG] domain operation"
+                     else
+                       raw_message
+                     end
+      @client.log(:debug, "domain.operation", message: safe_message)
     end
 
-    # Compare two hashes for equality
+    # 比较实际哈希是否包含期望哈希中的全部键值。
     #
-    # @param first_hash [Hash]
-    # @param second_hash [Hash]
-    # @return [Boolean]
+    # @param first_hash [Hash] 实际数据
+    # @param second_hash [Hash] 期望数据
+    # @return [Boolean] 是否匹配
     def hash_equals?(first_hash, second_hash)
-      normalized_first_hash = normalize_hash(first_hash)
-      normalized_second_hash = normalize_hash(second_hash)
-
-      hash1 = normalized_first_hash.merge(normalized_second_hash)
-      hash2 = normalized_second_hash.merge(normalized_first_hash)
-      hash1 == hash2
+      actual = normalize_hash(first_hash)
+      expected = normalize_hash(second_hash)
+      actual.slice(*expected.keys) == expected
     end
 
-    # Convert all hash/array keys to symbols
+    # 将哈希值递归规范为字符串，并忽略 hostid。
     #
-    # @param object [Array, Hash]
-    # @return [Array, Hash]
-    def symbolize_keys(object)
-      case object
-      when Array
-        object.each_with_index do |val, index|
-          object[index] = symbolize_keys(val)
-        end
-      when Hash
-        object.each_key do |key|
-          object[key.to_sym] = symbolize_keys(object.delete(key))
-        end
-      end
-      object
-    end
-
-    # Normalize all hash values to strings
-    #
-    # @param hash [Hash]
-    # @return [Hash]
+    # @param hash [Hash] 待规范化的哈希
+    # @return [Hash] 规范化后的副本
     def normalize_hash(hash)
-      result = hash.dup
-
-      result.delete(:hostid) # TODO: remove to logig. TemplateID and HostID has different id
-
-      result.each do |key, value|
-        result[key] = value.is_a?(Array) ? normalize_array(value) : value.to_s
-      end
-
-      result
+      hash.deep_symbolize_keys.except(:hostid).deep_transform_values(&:to_s)
     end
 
-    # Normalize all array values to strings
+    # 从 API 结果中解析单个对象 ID，或透传布尔结果。
     #
-    # @param array [Array]
-    # @return [Array]
-    def normalize_array(array)
-      result = []
-
-      array.each do |e|
-        case e
-        when Array
-          result.push(normalize_array(e))
-        when Hash
-          result.push(normalize_hash(e))
-        else
-          result.push(e.to_s)
-        end
-      end
-
-      result
-    end
-
-    # Parse a data hash for id key or boolean to return
-    #
-    # @param data [Hash]
-    # @return [Integer] The object id if a single object hash is provided with key
-    # @return [Boolean] True/False if multiple class object hash is provided
+    # @param data [Hash, Boolean] API 返回结果
+    # @return [Integer, Boolean, nil] 对象 ID、布尔结果或空值
     def parse_keys(data)
       case data
       when Hash
@@ -92,16 +50,6 @@ class ZabbixManager
       when FalseClass
         false
       end
-    end
-
-    # Merge two hashes into a single new hash
-    #
-    # @param first_hash [Hash]
-    # @param second_hash [Hash]
-    # @return [Hash]
-    def merge_params(first_hash, second_hash)
-      new = first_hash.dup
-      new.merge(second_hash)
     end
   end
 end
