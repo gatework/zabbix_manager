@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
+  # 原生代理资源；按服务器版本选择 name 或 host 作为名称字段。
   class Proxies < Resource
     # 返回 Zabbix API 中代理对象的方法名前缀。
     #

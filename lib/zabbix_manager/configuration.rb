@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
-  # Validates connection settings once, before any network activity.
+  # 在首次网络访问之前统一校验连接配置。
   class Configuration
     ENVIRONMENT_KEYS = {
       url: "ZABBIX_URL", api_token: "ZABBIX_API_TOKEN",
@@ -10,18 +10,19 @@ class ZabbixManager
     CREDENTIALS = %i[api_token username password http_user http_password].freeze
     BOOLEAN_OPTIONS = %i[verify_ssl allow_insecure_http no_proxy ignore_version].freeze
     OPTIONS = (CREDENTIALS + BOOLEAN_OPTIONS + %i[
-      url proxy ca_file timeout open_timeout read_timeout write_timeout keep_alive_timeout
+      url proxy ca_file timeout request_timeout max_response_bytes
+      open_timeout read_timeout write_timeout keep_alive_timeout
       logger log_level upsert_lock uncertain_write_delays
     ]).freeze
     DEFAULT_UNCERTAIN_WRITE_DELAYS = [0, 0.25, 1, 2].freeze
 
-    # Read only connection identity from an explicitly selected environment.
-    # Explicit options, including nil, take precedence over environment values.
+    # 仅从指定环境映射读取连接身份字段。
+    # 显式选项优先于环境值，包含用于清除凭据的 nil。
     def self.from_env(env, overrides)
       ENVIRONMENT_KEYS.to_h { |key, name| [key, env[name]] }.merge(overrides)
     end
 
-    # Return validated options without changing caller-owned values.
+    # 返回已校验的配置，不修改调用方持有的值。
     def self.parse(options)
       new(options).to_h
     end

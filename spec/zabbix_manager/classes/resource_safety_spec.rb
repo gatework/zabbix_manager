@@ -99,7 +99,8 @@ RSpec.describe "Resource input types" do
 
   it "rejects fractional item types before item.create" do
     expect(client).to receive(:api_request).with(
-      method: "item.get", params: { hostids: 1, output: %w[itemid key_ name], filter: { key_: "uptime" } }
+      method: "item.get", params: { hostids: 1, output: "extend", selectPreprocessing: "extend",
+                                    filter: { key_: "uptime" } }
     ).and_return([])
     expect(client).not_to receive(:api_request).with(hash_including(method: "item.create"))
     expect do

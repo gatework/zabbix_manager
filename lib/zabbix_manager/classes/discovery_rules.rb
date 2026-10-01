@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
+  # 网络发现规则（drule），区别于主机内的低级发现（discoveryrule）。
   class DiscoveryRules < Resource
     # 返回网络发现规则对应的 Zabbix API 方法前缀。
     #

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
+  # 角色查询与权限规则更新；权限内容由调用方定义，服务端负责权限校验。
   class Roles < Resource
     # 返回 Zabbix API 中角色对象的方法名前缀。
     #
@@ -34,17 +35,24 @@ class ZabbixManager
 
     # 按角色 ID 获取角色详情及完整规则。
     #
-    # @param data [Hash] 包含 id 的查询参数
+    # @param data [Hash] 包含 roleid 的查询参数；旧 id 引用仍可使用，但不得矛盾
     # @raise [ApiError] Zabbix API 返回业务错误时抛出
     # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
     # @return [Array<Hash>] 匹配的角色详情
     def dump_by_id(data)
+      attributes = data.deep_symbolize_keys
+      if attributes.key?(:roleid) && attributes.key?(:id) &&
+         normalized_ids([attributes[:roleid]]) != normalized_ids([attributes[:id]])
+        raise Invalid, "roleid and id disagree"
+      end
+
+      id = normalized_ids([attributes.fetch(:roleid) { attributes[:id] }]).first
       @client.api_request(
         method: "role.get",
         params: {
           output: "extend",
           selectRules: "extend",
-          roleids: data[:id]
+          roleids: id
         }
       )
     end

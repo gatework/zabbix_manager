@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
+  # 按模板技术名称解析 ID；返回引用供主机或模板关联操作使用。
   class Templates < Resource
     # 返回 Zabbix API 中模板对象的方法名前缀。
     #

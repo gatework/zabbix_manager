@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
+  # 应用集以 hostid + name 定位；端点是否可用由目标 Zabbix 版本决定。
   class Applications < Resource
     # 返回应用集对象对应的 Zabbix API 方法前缀。
     #

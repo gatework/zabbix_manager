@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
+  # 原生事件查询入口；按当前客户端凭据可见范围返回服务端记录。
   class Events < Resource
     # 返回事件对象对应的 Zabbix API 方法前缀。
     #

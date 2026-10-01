@@ -2,8 +2,8 @@
 
 class ZabbixManager
   class Monitoring
-    # Native trigger ownership, retirement and problem reads for one line endpoint.
-    # No persistent state is required; confirmed tags and IDs define the managed scope.
+    # 通过原生 API 核对端点触发器归属、停用旧检查并读取问题。
+    # 不保存持久状态；以已确认的标签和 ID 界定管理范围。
     # @api private
     class LineLifecycle
       KINDS = %i[interface_status bandwidth low_traffic reachability].freeze
@@ -24,6 +24,8 @@ class ZabbixManager
         @manager, @hostid = manager, hostid
       end
 
+      # 服务端前缀过滤后，再以完整受管键筛选并拒绝重复身份。
+      # @return [Array<Hash>] 该端点已知类型的原生触发器；所有者由 owned 继续筛选
       def inventory
         records = @manager.client.api_request(
           method: "trigger.get",
@@ -54,6 +56,8 @@ class ZabbixManager
         selected
       end
 
+      # 兼容缺少 line_id 的既有受管标签，但拒绝其他管理方或矛盾的端点标签。
+      # @return [Array<Hash>] 当前库拥有的触发器
       def owned(records = inventory)
         records.select do |record|
           owner = tag_values(record, "managed_by")
@@ -76,6 +80,8 @@ class ZabbixManager
                                      enabled: false)
       end
 
+      # 仅停用本轮期望之外的受管类型；调用方必须先确认所有期望触发器写入成功。
+      # @return [Array<Integer>] 已确认停用的 ID；不删除对象
       def retire(records, desired_keys)
         disable(owned(records).reject { |record| desired_keys.include?(managed_key(record)) })
       end

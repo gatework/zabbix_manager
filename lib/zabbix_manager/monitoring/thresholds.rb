@@ -5,6 +5,8 @@ require "zabbix_manager/monitoring/expressions"
 class ZabbixManager
   class Monitoring
     # 先完整验证监控项和阈值，再生成不含远端副作用的触发器定义。
+    # 不执行 item.get 或写请求；已有监控项的归属及创建必填字段由资源层继续核对。
+    # @api private
     class Thresholds
       DEFAULT_WINDOW = "5m"
       DEFAULT_PRIORITY = 3
@@ -19,6 +21,8 @@ class ZabbixManager
         @client = client
       end
 
+      # 复制原生 item 定义并绑定主机/接口；省略字段保留给资源层默认值与校验处理。
+      # @return [Hash{Symbol => Hash}] 按业务指标名称分组的监控项属性
       def prepare_items(host, interface, definitions)
         items = Validation.hash!(definitions, "items").to_h do |metric, attributes|
           attributes = Validation.hash!(attributes, "item #{metric}")
@@ -36,11 +40,14 @@ class ZabbixManager
         items
       end
 
-      def prepare_triggers(host:, interface:, items:, thresholds:)
+      # 高阈值任一方向超限即可告警；所有方向低于或等于恢复值才恢复。
+      # 初次预检可只检查结构；合并远端配置后必须校验完整监控项。
+      # @return [Hash{Symbol => Hash}] 包含表达式、恢复表达式及受管身份的写入属性
+      def prepare_triggers(host:, interface:, items:, thresholds:, validate_items: true)
         Validation.host!(host)
         Validation.hash!(thresholds, "thresholds").to_h do |metric, attributes|
           config = self.class.validate_config!(metric, attributes)
-          selected = select_items(metric, config, items)
+          selected = select_items(metric, config, items, validate_items: validate_items)
           high, recovery = self.class.values(metric, config)
           function = config.fetch(:function, "avg")
           window = config.fetch(:window, DEFAULT_WINDOW)
@@ -103,7 +110,7 @@ class ZabbixManager
 
       private
 
-      def select_items(metric, config, items)
+      def select_items(metric, config, items, validate_items:)
         names = Validation.array!(config.fetch(:metrics, METRICS.fetch(metric)), "threshold metrics")
         raise Invalid, "threshold #{metric} requires at least one item" if names.empty?
 
@@ -113,12 +120,16 @@ class ZabbixManager
           end
 
           item = items.fetch(name.to_sym) { raise Invalid, "threshold #{metric} requires item metric #{name}" }
-          validate_units!(metric, item)
+          validate_units!(metric, item) if validate_items
           item
         end
       end
 
       def validate_units!(metric, item)
+        if item.key?(:value_type) && !%w[0 3].include?(item[:value_type].to_s)
+          raise Invalid, "threshold #{metric} requires a numeric value_type"
+        end
+
         case metric
         when :bandwidth
           TrafficItems.validate_bps!(item)

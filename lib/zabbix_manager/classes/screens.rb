@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
+  # 旧版聚合图形的网格创建入口；目标服务器须提供 screen API。
   class Screens < Resource
     # 以下资源类型取自 frontends/php/include/defines.inc.php。
     # SCREEN_RESOURCE_GRAPH => 0,

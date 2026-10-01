@@ -136,10 +136,18 @@ class ZabbixManager
       Validation.positive_id!(interface[:interfaceid], "interface.interfaceid") if interface.key?(:interfaceid)
       items = @thresholds.prepare_items(supplied_host, interface, input.fetch(:items, {}))
       triggers = @thresholds.prepare_triggers(
-        host: supplied_host, interface: interface, items: items, thresholds: input.fetch(:thresholds, {})
+        host: supplied_host, interface: interface, items: items, thresholds: input.fetch(:thresholds, {}),
+        validate_items: false
       )
       host = resolve_host(supplied_host, {})
-      itemids = items.keys.zip(@manager.items.upsert_many(items.values)).to_h
+      ids = @manager.items.upsert_many(items.values) do |effective|
+        # 读取已有配置后再次校验最终量纲和数值类型，仍在首个 item 写入之前。
+        triggers = @thresholds.prepare_triggers(
+          host: supplied_host, interface: interface, items: items.keys.zip(effective).to_h,
+          thresholds: input.fetch(:thresholds, {})
+        )
+      end
+      itemids = items.keys.zip(ids).to_h
       triggerids = triggers.transform_values { |trigger| @manager.triggers.upsert_for_host(trigger) }
       { hostid: host[:hostid].to_i, interface: interface[:name], itemids: itemids, triggerids: triggerids }
     end

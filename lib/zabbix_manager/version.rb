@@ -1,5 +1,5 @@
 # frozen_string_literal: true
 
 class ZabbixManager
-  VERSION = "5.1.6"
+  VERSION = "6.0.0"
 end

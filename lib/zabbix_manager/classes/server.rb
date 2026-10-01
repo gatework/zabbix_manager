@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
+  # 已连接服务器的版本快照；复用 Client 初始化结果，不发起额外版本查询。
   class Server
     # 返回连接对应的 Zabbix API 版本。
     #

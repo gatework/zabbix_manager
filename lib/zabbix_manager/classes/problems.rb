@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
+  # 原生问题查询与事件确认；问题身份使用 eventid，确认动作属于远端写入。
   class Problems < Resource
     # 返回问题对象对应的 Zabbix API 方法前缀。
     #
@@ -28,7 +29,7 @@ class ZabbixManager
     # @param data [Hash] 问题过滤条件及附加 API 参数
     # @raise [ApiError] Zabbix API 返回业务错误时抛出
     # @raise [TransportError] Zabbix 服务端返回非成功 HTTP 状态时抛出
-    # @return [Hash] 匹配的问题完整数据
+    # @return [Array<Hash>] 匹配的问题完整数据
     def get_full_data(data)
       data = data.deep_symbolize_keys
       params = {

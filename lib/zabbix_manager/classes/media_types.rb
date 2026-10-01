@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
+  # 原生通知媒介资源；仅提供最小默认值，不推断端点、凭据或版本字段。
   class MediaTypes < Resource
     # 返回媒介类型对象对应的 Zabbix API 方法前缀。
     # @return [String] API 方法前缀

@@ -5,6 +5,8 @@ require "bigdecimal"
 class ZabbixManager
   class Monitoring
     # 监控输入的形状、数值和表达式边界；不做静默类型强制转换。
+    # 校验容器不代表授权；数值允许可解析的十进制字符串，ID 不接受浮点或布尔值。
+    # @api private
     module Validation
       ITEM_KEY = /\A[A-Za-z0-9_.-]+(?:\[(?:[A-Za-z0-9_.:,\/\- {}\#$]|"(?:[^"\\\r\n]|\\.)*")*\])?\z/
       HOST_NAME = /\A[A-Za-z0-9 ._-]+\z/

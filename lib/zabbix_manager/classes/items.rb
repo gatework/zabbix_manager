@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
+  # 监控项查询与写入；通用 CRUD 使用名称，专用 upsert 使用 hostid + key_。
   class Items < Resource
     DEFAULT_OPTIONS = {
       delay: "1m",
@@ -28,10 +29,10 @@ class ZabbixManager
 
     # 使用主机和名称组成通用 CRUD 的查询边界。
     #
-    # @param data [Hash] Needs to include name and hostid to properly identify Items via Zabbix API
-    # @raise [ApiError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [TransportError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Integer] Zabbix object id
+    # @param data [Hash] 包含 name 和 hostid 的监控项属性
+    # @raise [ApiError] Zabbix API 明确返回业务错误
+    # @raise [TransportError] HTTP 或网络请求失败，可能无法确认远端结果
+    # @return [Hash] 名称和所属主机组成的精确过滤条件
     def identity_filter(data)
       attributes = data.deep_symbolize_keys
       { name: attributes.fetch(:name), hostid: attributes.fetch(:hostid) }
@@ -52,7 +53,7 @@ class ZabbixManager
     # 按主机和稳定 key 查询唯一监控项。
     # @return [Hash, nil]
     def find_by_key(hostid:, key:)
-      result = for_host(hostid, keys: key, output: ["itemid", "key_", "name"])
+      result = for_host(hostid, keys: key, output: "extend", select_preprocessing: "extend")
       raise Conflict, "multiple items use key #{key} on host #{hostid}" if result.length > 1
 
       result.first
@@ -65,6 +66,7 @@ class ZabbixManager
     end
 
     # 先校验整批数据，再按稳定 key 逐项幂等写入。
+    # @yieldparam effective [Array<Hash>] 合并已有配置或创建默认值后的有效属性；块失败时不写入
     # @return [Array<Integer>]
     def upsert_many(collection)
       items = Array(collection).map { |data| validate_item!(data) }
@@ -73,6 +75,16 @@ class ZabbixManager
       raise Invalid, "duplicate hostid + key_ identity #{duplicate.join(":")}" if duplicate
 
       plans = items.map { |item| plan_item(item) }
+      if block_given?
+        effective = plans.map do |attributes, current|
+          if current && !%w[type value_type].all? { |field| current.key?(field) }
+            raise ProtocolError, "item.get must include type and value_type for effective configuration validation"
+          end
+
+          current ? current.deep_symbolize_keys.merge(attributes).deep_dup : attributes.deep_dup
+        end
+        yield effective
+      end
       plans.map { |attributes, current| apply_item(attributes, current) }
     end
 

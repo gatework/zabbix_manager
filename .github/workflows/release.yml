@@ -27,6 +27,12 @@ jobs:
           test "v${gem_version}" = "${GITHUB_REF_NAME}"
       - name: 构建并隔离验证发布候选 Gem
         run: bundle exec ruby script/verify_package.rb
+      - name: 保存已验证 Gem
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gem-${{ github.sha }}
+          path: pkg/*.gem
+          if-no-files-found: error
       - name: 配置 RubyGems 可信发布凭据
         uses: rubygems/configure-rubygems-credentials@dc5a8d8553e6ee01fc26761a49e99e733d17954a # v2.1.0
       - name: 发布到 RubyGems

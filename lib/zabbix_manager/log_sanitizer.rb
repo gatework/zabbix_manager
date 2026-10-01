@@ -4,6 +4,8 @@ require "uri"
 require "active_support/parameter_filter"
 
 class ZabbixManager
+  # 日志与诊断数据的脱敏边界；过滤已知敏感字段、认证头和 URL 凭据。
+  # 自由文本过滤不能识别任意秘密，因此客户端不记录请求参数或服务端原始错误文本。
   module LogSanitizer
     REDACTED = "[FILTERED]"
     MAX_STRING_LENGTH = 2_000

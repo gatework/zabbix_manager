@@ -2,8 +2,8 @@
 
 class ZabbixManager
   class Monitoring
-    # Resolve one endpoint's numeric items and reuse a host's shared ICMP check.
-    # Existing ICMP items are never renamed, enabled, deleted, or otherwise claimed.
+    # 解析端点的数值监控项，并复用主机已有的共享 ICMP 检查。
+    # 不重命名、启用、删除或接管已有 ICMP 监控项。
     # @api private
     class LineItems
       PATTERNS = {
@@ -15,6 +15,9 @@ class ZabbixManager
         @items = items
       end
 
+      # 两个流量方向必须唯一、不同且属于目标主机；附加指标只在选择器启用时解析。
+      # @return [Hash{Symbol => Hash}] 流量及可选状态/速率监控项
+      # @raise [Invalid, Conflict, ProtocolError] 量纲、身份、归属或响应结构无法确认
       def resolve(line, candidates, hostid:)
         unless candidates.is_a?(Array) && candidates.all? { |item| item.is_a?(Hash) }
           raise ProtocolError, "item.get must return an array of item objects"
@@ -49,6 +52,8 @@ class ZabbixManager
         selected
       end
 
+      # 查询稳定 ICMP key 并生成候选属性；缺失对象在执行阶段才创建。
+      # @return [Hash] attributes 及已有 itemid（不存在时为 nil）
       def icmp_plan(hostid, target)
         attributes = {
           hostid: hostid, name: "ICMP #{target}", key_: "icmpping[#{target}]", type: 3,
@@ -58,7 +63,7 @@ class ZabbixManager
         { attributes: attributes, itemid: current&.fetch(:itemid) }
       end
 
-      # Recheck under the caller's workflow mutex; never overwrite an existing shared item.
+      # 在调用方工作流互斥锁内再次查询，不覆盖已有共享监控项。
       def ensure_icmp(plan)
         current = find_icmp(plan.fetch(:attributes))
         return current.fetch(:itemid).to_i if current

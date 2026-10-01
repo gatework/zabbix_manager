@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
+  # 触发器与依赖对账；受管身份使用标签，创建结果不明时只回读、不重放。
   class Triggers < Resource
     DEFAULT_UNCERTAIN_WRITE_DELAYS = [0, 0.25, 1, 2].freeze
     MAX_MANAGED_KEY_LENGTH = 200
@@ -20,10 +21,10 @@ class ZabbixManager
 
     # 按触发器 ID 查询完整对象及关联项和函数。
     #
-    # @param data [Hash] Should include desired object's key and value
-    # @raise [ApiError] Error returned when there is a problem with the Zabbix API call.
-    # @raise [TransportError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
-    # @return [Hash]
+    # @param data [Hash] 包含目标触发器 ID 字段及其值
+    # @raise [ApiError] Zabbix API 明确返回业务错误
+    # @raise [TransportError] HTTP 或网络请求失败，可能无法确认远端结果
+    # @return [Array<Hash>] 匹配的触发器及其关联对象
     def dump_by_id(data)
       @client.api_request(
         method: "trigger.get",

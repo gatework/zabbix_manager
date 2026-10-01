@@ -32,6 +32,7 @@ module HttpTransportSpecSupport
 
     def request(request)
       @requests << request
+      yield @response if block_given?
       @response
     end
   end
@@ -47,7 +48,10 @@ RSpec.describe ZabbixManager::HttpTransport do
   let(:http) { HttpTransportSpecSupport::FakePersistentHttp.new(response) }
 
   before do |example|
-    allow(Net::HTTP).to receive(:new).and_return(http) unless example.metadata[:real_http]
+    unless example.metadata[:real_http]
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(response).to receive(:read_body).and_yield("{}")
+    end
   end
 
   it "reuses one started HTTP session across requests" do

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
+  # 用户资源与媒介配置替换；字段名称按服务器版本转换。
   class Users < Resource
     # @return [String] API 模块名
     def method_name

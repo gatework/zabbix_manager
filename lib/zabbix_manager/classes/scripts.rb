@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
+  # 远端脚本执行与可用脚本查询；执行请求可能产生 API 之外的设备副作用。
   class Scripts < Resource
     # 返回 Zabbix API 中脚本对象的方法名前缀。
     #

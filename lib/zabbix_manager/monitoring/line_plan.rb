@@ -2,8 +2,8 @@
 
 class ZabbixManager
   class Monitoring
-    # Build the exact trigger attributes once for preview and execution.
-    # Dependencies remain kind references until the status trigger's ID is confirmed.
+    # 统一生成触发器属性，供预览和实际执行复用。
+    # 状态触发器 ID 确认之前，依赖以指标类型名称表示。
     # @api private
     class LinePlan
       def initialize(client, line, host, items, icmp_item)
@@ -13,6 +13,8 @@ class ZabbixManager
         validate_metadata_version!
       end
 
+      # 纯本地构造计划，不写远端；依赖保留为指标名称，执行时转换为已确认 triggerid。
+      # @return [Hash] 端点身份、监控项 ID、触发器属性及依赖计划
       def to_h
         triggers = {}
         triggers[:interface_status] = status_trigger if @items[:status]

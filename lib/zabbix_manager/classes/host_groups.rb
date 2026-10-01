@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
+  # 主机群组名称解析与按需创建；批量创建按顺序执行，不是远端事务。
   class HostGroups < Resource
     # 返回主机群组对应的 Zabbix API 方法前缀。
     #

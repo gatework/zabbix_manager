@@ -2,6 +2,8 @@
 
 class ZabbixManager
   # 共享资源身份、精确查询和单对象写入行为。
+  # 子类声明 API 前缀、身份和回执字段；原生透传仍由调用方负责授权及版本适配。
+  # 回执校验只确认响应中的 ID，不提供事务、跨进程排他或失败后的自动重放。
   class Resource
     # @param client [ZabbixManager::Client] 共享客户端
     def initialize(client)

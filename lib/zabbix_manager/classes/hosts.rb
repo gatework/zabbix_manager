@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
+  # 主机身份解析、状态对账与模板关联；技术名称和显示名称分别处理。
   class Hosts < Resource
     # 返回主机对应的 Zabbix API 模块名。
     def method_name

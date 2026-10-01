@@ -97,7 +97,7 @@ HTTPS certificate verification is disabled by default as required by this projec
 
 Zabbix 7 API-token requests need the `Authorization` header, so they cannot share that header with HTTP Basic authentication. The client rejects that combination instead of silently overwriting either credential.
 
-Timeouts can be set together with `timeout:` or independently with `open_timeout:`, `read_timeout:`, and `write_timeout:`. `keep_alive_timeout:` controls persistent connection reuse.
+Timeouts can be set together with `timeout:` or independently with `open_timeout:`, `read_timeout:`, and `write_timeout:`. `keep_alive_timeout:` controls persistent connection reuse. `request_timeout:` bounds the complete network operation, including a continuously progressing response, and defaults to `timeout:`. Waiting for another request on the same client is outside that budget. `max_response_bytes:` limits the decompressed response body (64 MiB by default). Exceeding either limit closes the connection and raises `TransportError`; mutations are never automatically replayed.
 
 ### Device and interface monitoring
 
@@ -280,3 +280,7 @@ Pull requests and pushes to `master` run RSpec, documentation coverage, RuboCop,
 
 [Zabbix]: https://www.zabbix.com
 [Zabbix API]: https://www.zabbix.com/documentation/current/en/manual/api
+
+### Upgrading to 6.0
+
+Version 6.0 requires Ruby 3.4 or newer. Use keyword connection and query arguments, snake_case resource accessors, the explicit exception classes, and the current monitoring result shapes shown above. Legacy aliases and the former `Basic` API are removed.

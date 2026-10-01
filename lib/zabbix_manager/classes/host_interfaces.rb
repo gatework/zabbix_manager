@@ -81,12 +81,16 @@ class ZabbixManager
     def plan_for_host(hostid:, interfaces:)
       desired = validate(interfaces)
       existing = for_host(hostid)
-      desired.map do |attributes|
+      plans = desired.map do |attributes|
         current = matching_interface(existing, attributes)
         response_identifier(current["interfaceid"]) if current
         validate_create_definition!(attributes) unless current
         [attributes, current]
       end
+      targets = plans.filter_map { |_attributes, current| current && response_identifier(current["interfaceid"]) }
+      raise Invalid, "duplicate resolved interface target" unless targets.uniq == targets
+
+      plans
     end
 
     # 执行内部生成的接口变更计划，避免调用方伪造跨主机接口 ID。
@@ -154,9 +158,11 @@ class ZabbixManager
 
     # 校验新接口的通用字段及 SNMP 条件字段。
     def validate_create_definition!(attributes)
+      raise Invalid, "new interfaces cannot reference an existing interfaceid" if attributes.key?(:interfaceid)
+
       attributes[:ip] = "" unless attributes.key?(:ip)
       attributes[:dns] = "" unless attributes.key?(:dns)
-      interface_identity(attributes)
+      endpoint_identity(attributes)
       validate_snmp_details!(attributes) if attributes[:type].to_i == 2
     end
 

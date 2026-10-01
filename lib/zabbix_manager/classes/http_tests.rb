@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
+  # Web 场景以 hostid + name 定位；步骤定义及执行凭据由调用方提供。
   class HttpTests < Resource
     # 返回 Web 场景对象对应的 Zabbix API 方法前缀。
     #

@@ -1,6 +1,12 @@
 # CHANGELOG
 
-## Unreleased
+## 6.0.0 (2026-10-01)
+
+* Fix role ID queries and host-scoped value map identities, keeping immutable host fields out of updates.
+* Reject incomplete interface creation and duplicate resolved interface targets before remote writes.
+* Preserve distinct interface names, validate standard 32-bit octet conversion, and check effective numeric item configuration before writing monitoring updates.
+* Bound network request duration and decompressed response size, close failed connections, and never replay uncertain mutations.
+* Complete Chinese module comments and correct public return-type documentation.
 
 * Extract reusable Motor monitoring scenarios through native Zabbix APIs only, without SQL or application persistence.
 * Add `traffic.series` and `traffic.for_interface` for precise history/trend reads with missing-data and truncation states.

@@ -3,7 +3,7 @@
 require "spec_helper"
 
 RSpec.describe ZabbixManager::ValueMaps do
-  let(:client) { instance_double(ZabbixManager::Client, options: {}) }
+  let(:client) { instance_double(ZabbixManager::Client, options: {}, api_version: "5.2.0") }
   let(:value_maps) { described_class.new(client) }
 
   it "uses the Zabbix value map identity fields" do

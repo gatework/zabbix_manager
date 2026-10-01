@@ -99,7 +99,7 @@ describe "ZabbixManager::Items" do
     it "创建监控项时合并默认值并校验 type" do
       allow(client).to receive(:api_request).with(
         method: "item.get",
-        params: { hostids: 101, output: ["itemid", "key_", "name"], filter: { key_: "system.uptime" } }
+        params: { hostids: 101, output: "extend", selectPreprocessing: "extend", filter: { key_: "system.uptime" } }
       ).and_return([])
       allow(client).to receive(:api_request).with(
         method: "item.create",
@@ -118,7 +118,7 @@ describe "ZabbixManager::Items" do
         method: "item.get",
         params: {
           hostids: 101,
-          output: ["itemid", "key_", "name"],
+          output: "extend", selectPreprocessing: "extend",
           filter: { key_: "net.dns.record[,resolver.example.test,A,2,2]" }
         }
       ).and_return([])

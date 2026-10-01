@@ -14,6 +14,9 @@ class ZabbixManager
       attr_reader :host_reference, :interface_name, :threshold, :low_traffic, :status, :speed,
                   :reachability_target, :metadata
 
+      # 仅解析本地定义，不访问服务器；status/speed 为开关或显式 itemid 选择器。
+      # @param attributes [Hash] 规范化后的单端点清单字段
+      # @raise [Invalid] 字段、阈值或目标格式不合法
       def initialize(attributes)
         @attributes = Validation.hash!(attributes, "line")
         @attributes.assert_valid_keys(*FIELDS)
@@ -43,6 +46,8 @@ class ZabbixManager
         { name: interface_name, line_id: resolved_id(hostid) }
       end
 
+      # 显式 line_id 优先；缺省身份由已解析 hostid 和规范接口名组成。
+      # @return [String] 用于受管标签的端点身份
       def resolved_id(hostid)
         @attributes[:line_id].presence || "#{hostid}:#{TrafficItems.interface_identity(interface_name)}"
       end

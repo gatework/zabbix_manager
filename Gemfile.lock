@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    zabbix_manager (5.1.6)
+    zabbix_manager (6.0.0)
       activesupport (>= 7.2)
       bigdecimal
       json (>= 2.0)

@@ -80,6 +80,41 @@ RSpec.describe ZabbixManager::HttpTransport, "over local sockets" do
     expect(received.map(&:last)).to eq(['{"method":"host.create"}'])
   end
 
+  context "响应资源预算" do
+    let(:transport) do
+      described_class.new(url: "http://127.0.0.1:#{listener.addr[1]}/api_jsonrpc.php",
+                          no_proxy: true, timeout: 1, request_timeout: 0.12, max_response_bytes: 8)
+    end
+
+    it "逐字节滴流也不能无限刷新整体期限" do
+      serve do |socket|
+        read_post(socket)
+        socket.write("HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\n")
+        8.times {
+          sleep(0.04)
+          socket.write("x")
+        }
+      rescue IOError, SystemCallError
+        nil
+      end
+      expect { transport.request("{}") }.to raise_error(ZabbixManager::TransportError, /deadline|timeout/i)
+    end
+
+    it "拒绝超过字节上限的分块响应，并在下一请求重新建立连接" do
+      serve do |socket|
+        read_post(socket)
+        socket.write("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n9\r\n123456789\r\n0\r\n\r\n")
+      end
+      expect { transport.request("{}") }.to raise_error(ZabbixManager::TransportError, /size|bytes/i)
+      serve { |socket|
+        read_post(socket)
+        write_response(socket)
+      }
+      expect(transport.request("{}")).to eq("{}")
+      expect(connections.length).to eq(2)
+    end
+  end
+
   context "with HTTPS" do
     let(:certificate) do
       OpenSSL::X509::Certificate.new.tap do |cert|

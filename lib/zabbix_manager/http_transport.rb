@@ -7,9 +7,15 @@ require "timeout"
 require "uri"
 
 class ZabbixManager
+  # 持有串行复用的 Net::HTTP 会话，负责代理、TLS、连接关闭及网络错误转换。
+  # 超时配置作用于连接、读取和写入阶段；传输失败不重放请求。
   class HttpTransport
     DEFAULT_TIMEOUT = 60
     DEFAULT_KEEP_ALIVE_TIMEOUT = 30
+    DEFAULT_MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+    # 仅用于中止单次网络操作，不包裹业务编排或应用层事务。
+    class RequestDeadline < Timeout::Error; end
+    private_constant :RequestDeadline
     NETWORK_ERRORS = [
       Timeout::Error, EOFError, IOError, SystemCallError, SocketError, OpenSSL::SSL::SSLError,
       Net::ProtocolError, Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError
@@ -25,6 +31,12 @@ class ZabbixManager
       validate_boolean_options!
       @uri = parse_uri(options.fetch(:url))
       @timeout = positive_number(options.fetch(:timeout, DEFAULT_TIMEOUT), :timeout)
+      @request_timeout = positive_number(options.fetch(:request_timeout, @timeout), :request_timeout)
+      @max_response_bytes = options.fetch(:max_response_bytes, DEFAULT_MAX_RESPONSE_BYTES)
+      unless @max_response_bytes.is_a?(Integer) && @max_response_bytes.positive?
+        raise Invalid, "max_response_bytes must be a positive integer"
+      end
+
       @open_timeout = positive_number(options.fetch(:open_timeout, @timeout), :open_timeout)
       @read_timeout = positive_number(options.fetch(:read_timeout, @timeout), :read_timeout)
       @write_timeout = positive_number(options.fetch(:write_timeout, @timeout), :write_timeout)
@@ -45,12 +57,8 @@ class ZabbixManager
     def request(body, bearer_token: nil)
       request = build_request(body, bearer_token)
       @mutex.synchronize do
-        response = active_http.request(request)
-        unless response.is_a?(Net::HTTPSuccess)
-          raise TransportError, "HTTP Error: #{response.code} on #{safe_url}"
-        end
-
-        response.body
+        # Net::HTTP 原生阶段超时仍生效；额外期限只覆盖连接、发送及读取，不重放 POST。
+        Timeout.timeout(@request_timeout, RequestDeadline) { read_response(request) }
       rescue TransportError
         disconnect
         raise
@@ -85,6 +93,25 @@ class ZabbixManager
     end
 
     private
+
+    # 流式累计解压后的响应字节，避免在检查上限之前缓冲整个正文。
+    def read_response(request)
+      body = +""
+      active_http.request(request) do |response|
+        unless response.is_a?(Net::HTTPSuccess)
+          raise TransportError, "HTTP Error: #{response.code} on #{safe_url}"
+        end
+
+        response.read_body do |chunk|
+          if body.bytesize + chunk.bytesize > @max_response_bytes
+            raise TransportError, "HTTP response exceeds max_response_bytes on #{safe_url}"
+          end
+
+          body << chunk
+        end
+      end
+      body
+    end
 
     # 校验并解析 HTTP 或 HTTPS API 地址。
     def parse_uri(value)

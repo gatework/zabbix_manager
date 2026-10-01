@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
+  # 图形以 hostid + name 查询；写入所有者由 gitems 中的监控项确定。
   class Graphs < Resource
     # 返回图形对象对应的 Zabbix API 方法前缀。
     #
@@ -14,7 +15,7 @@ class ZabbixManager
     # @param data [Hash] 包含图形识别字段及其值的查询条件
     # @raise [ApiError] Zabbix API 返回业务错误时抛出
     # @raise [TransportError] Zabbix 服务端返回非成功 HTTP 状态时抛出
-    # @return [Hash] 匹配的图形完整数据
+    # @return [Array<Hash>] 匹配的图形完整数据
     def get_full_data(data)
       @client.api_request(
         method: "#{method_name}.get",
@@ -58,7 +59,7 @@ class ZabbixManager
     # @param data [Hash, String, Integer] 图形 ID
     # @raise [ApiError] Zabbix API 返回业务错误时抛出
     # @raise [TransportError] Zabbix 服务端返回非成功 HTTP 状态时抛出
-    # @return [Hash] 图形监控项数据
+    # @return [Array<Hash>] 图形监控项数据
     def get_items(data)
       @client.api_request(
         method: "graphitem.get",

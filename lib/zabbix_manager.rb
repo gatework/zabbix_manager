@@ -45,6 +45,8 @@ require "zabbix_manager/classes/discovery_rules"
 require "zabbix_manager/monitoring"
 require "zabbix_manager/traffic"
 
+# 管理一个已认证客户端及其资源、监控和流量入口；连接生命周期由调用方负责。
+# 原生 API 透传不代替应用层授权，资源对象共享同一客户端凭据。
 class ZabbixManager
   # @return [ZabbixManager::Client]
   attr_reader :client
@@ -58,11 +60,11 @@ class ZabbixManager
     new(**options)
   end
 
-  # Build a manager using only the documented connection environment variables.
-  # Explicit options override the environment, including explicit nil values.
-  # @param env [#[]] a mapping containing the four documented ZABBIX_* variables
-  # @param options [Hash] explicit connection settings
-  # @return [ZabbixManager] an authenticated manager owned by the caller
+  # 仅使用文档列出的连接环境变量创建管理器。
+  # 显式选项覆盖环境配置，包含显式传入的 nil。
+  # @param env [#[]] 包含四个约定 ZABBIX_* 环境变量的映射
+  # @param options [Hash] 显式连接配置
+  # @return [ZabbixManager] 已认证管理器，其生命周期由调用方负责
   def self.from_env(env: ENV, **options)
     new(**Configuration.from_env(env, options))
   end
@@ -99,7 +101,7 @@ class ZabbixManager
     @resources = {}
   end
 
-  # Each resource shares this manager's authenticated client.
+  # 各资源对象共享当前管理器的已认证客户端。
   RESOURCES = {
     actions: Actions, applications: Applications, configurations: Configurations,
     events: Events, graphs: Graphs, host_groups: HostGroups, host_interfaces: HostInterfaces,
@@ -111,6 +113,8 @@ class ZabbixManager
   }.freeze
   private_constant :RESOURCES
 
+  # 在加载期按固定映射生成 actions、host_groups 等访问器，避免重复的资源工厂方法。
+  # 名称不来自外部输入；实例按管理器缓存，认证和连接由共享 Client 持有。
   RESOURCES.each do |name, resource_class|
     define_method(name) { @resources[name] ||= resource_class.new(@client) }
   end

@@ -7,7 +7,7 @@ require "active_support/logger"
 require "active_support/tagged_logging"
 
 class ZabbixManager
-  # Owns one authenticated connection and its JSON-RPC request lifecycle.
+  # 持有一个已认证连接，管理 JSON-RPC 请求的完整生命周期。
   class Client
     SUPPORTED_MAJOR_VERSIONS = (4..7)
     UNAUTHENTICATED_METHODS = %w[apiinfo.version user.login].freeze
@@ -15,11 +15,11 @@ class ZabbixManager
 
     attr_reader :options, :logger, :api_version
 
-    # Validate settings, fetch the server version and authenticate immediately.
-    # Failed initialization closes its connection; the caller owns a successful client.
-    # @param options [Hash] explicit connection, credential, logger and lock settings
-    # @raise [Invalid] connection settings are invalid or conflicting
-    # @raise [ApiError, TransportError, ProtocolError] version lookup or authentication fails
+    # 校验配置后立即查询服务器版本并完成认证。
+    # 初始化失败时关闭连接；成功后的客户端生命周期由调用方负责。
+    # @param options [Hash] 显式连接、凭据、日志及锁配置
+    # @raise [Invalid] 连接配置无效或相互冲突
+    # @raise [ApiError, TransportError, ProtocolError] 版本查询或认证失败
     def initialize(**options)
       @settings = Configuration.parse(options)
       @options = sanitized_options.freeze
@@ -46,13 +46,13 @@ class ZabbixManager
       raise
     end
 
-    # Perform one request. A failed or unconfirmed mutation is never replayed.
-    # @param method [String] native API method, such as "history.get"
-    # @param params [Hash, Array] native Zabbix parameters; values are not logged
-    # @return [Object] decoded JSON-RPC result, preserving the server's scalar types
-    # @raise [Invalid] method name or parameter container is invalid
-    # @raise [ApiError] the server explicitly rejects the request
-    # @raise [TransportError, ProtocolError] no valid response confirms the result
+    # 执行一次请求，不重放失败或结果未确认的变更。
+    # @param method [String] 原生 API 方法，例如 "history.get"
+    # @param params [Hash, Array] 原生 Zabbix 参数，不将参数值写入日志
+    # @return [Object] 解码后的 JSON-RPC 结果，保留服务器返回的标量类型
+    # @raise [Invalid] 方法名或参数容器无效
+    # @raise [ApiError] 服务器明确拒绝请求
+    # @raise [TransportError, ProtocolError] 未收到能够确认结果的有效响应
     def api_request(method:, params: {})
       validate_request!(method, params)
       started_at = monotonic_time
@@ -67,10 +67,10 @@ class ZabbixManager
       raise
     end
 
-    # Revoke a password session; API tokens only need local cleanup.
-    # Local credentials and transport are cleared even if remote logout fails.
-    # @return [Boolean] the server logout result, or true for an API token
-    # @raise [ApiError, TransportError] remote session logout fails
+    # 注销密码认证会话；API token 仅需清理本地状态。
+    # 远端注销失败时仍清除本地认证令牌并关闭传输连接。
+    # @return [Boolean] 服务器注销结果；API token 模式返回 true
+    # @raise [ApiError, TransportError] 远端会话注销失败
     def logout
       @credential_type == :user_session && @auth_token ? api_request(method: "user.logout", params: []) : true
     ensure
@@ -78,17 +78,17 @@ class ZabbixManager
       close
     end
 
-    # Close the connection without revoking credentials; a later request reconnects.
+    # 关闭连接但不撤销凭据；后续请求按需重新连接。
     # @return [true]
     def close
       @transport.close
     end
 
-    # Log metadata lazily. Logging failure must not change a remote write result.
-    # @param level [Symbol] Ruby Logger severity method
-    # @param event [String] stable event name
-    # @param data [Hash] metadata filtered before serialization
-    # @return [Object, nil] logger result, or nil when logging is disabled or fails
+    # 延迟构造日志元数据；日志失败不能改变远端写入结果。
+    # @param level [Symbol] Ruby Logger 日志级别方法
+    # @param event [String] 稳定的事件名称
+    # @param data [Hash] 序列化之前经过脱敏的元数据
+    # @return [Object, nil] 日志返回值；日志关闭或失败时返回 nil
     def log(level, event, data = {})
       return unless @logger
 
@@ -99,16 +99,16 @@ class ZabbixManager
       nil
     end
 
-    # @return [String] a diagnostic representation containing only sanitized options
+    # @return [String] 仅包含脱敏配置的诊断摘要
     def inspect
       "#<#{self.class} options=#{@options.inspect}>"
     end
 
-    # Application locks extend local serialization across worker processes.
-    # Locks are not reentrant; callers must not acquire another upsert lock inside the block.
-    # @param key [String] stable non-secret identity of the protected operation
-    # @yield the read/modify/write operation to serialize
-    # @return [Object] the block's result
+    # 应用层锁适配器可将本地串行化扩展到多个工作进程。
+    # 锁不可重入；调用方不能在块内再次获取 upsert 锁。
+    # @param key [String] 被保护操作的稳定、非秘密身份
+    # @yield 需要串行执行的读取、修改和写入操作
+    # @return [Object] 块的返回值
     def with_upsert_lock(key, &block)
       @upsert_mutexes[key.hash % UPSERT_MUTEX_STRIPES].synchronize do
         coordinator = @settings[:upsert_lock]
@@ -174,7 +174,7 @@ class ZabbixManager
         raise ProtocolError, "Invalid JSON-RPC error response"
       end
 
-      # Server text can echo arbitrary request values, including macros and secrets.
+      # 服务器文本可能回显任意请求值，包括宏及秘密。
       safe_response = response.slice("jsonrpc", "id").merge("error" => error.slice("code"))
       raise ApiError.new("Zabbix API error #{error.fetch("code")}", safe_response)
     end
