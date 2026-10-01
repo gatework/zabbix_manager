@@ -1,19 +1,12 @@
 # frozen_string_literal: true
 
 class ZabbixManager
-  class Graphs < Basic
+  class Graphs < Resource
     # 返回图形对象对应的 Zabbix API 方法前缀。
     #
     # @return [String]
     def method_name
       "graph"
-    end
-
-    # 返回图形对象用于业务识别的字段名。
-    #
-    # @return [String]
-    def identify
-      "name"
     end
 
     # 按名称搜索并获取图形的完整数据。
@@ -23,8 +16,6 @@ class ZabbixManager
     # @raise [TransportError] Zabbix 服务端返回非成功 HTTP 状态时抛出
     # @return [Hash] 匹配的图形完整数据
     def get_full_data(data)
-      log "[DEBUG] Call get_full_data with parameters: #{data.inspect}"
-
       @client.api_request(
         method: "#{method_name}.get",
         params: {
@@ -78,12 +69,24 @@ class ZabbixManager
       )
     end
 
-    # 生成由图形名称和所属模板构成的稳定查询条件。
-    # @param data [Hash] 包含 name 和 templateid 的图形属性
+    # 生成由图形名称和所属主机或模板构成的稳定查询条件。
+    # graph.templateid 是继承源图形 ID，不是所属模板 ID。
+    # @param data [Hash] 包含 name 和 hostid 的图形属性
     # @return [Hash] 图形唯一查询条件
     def identity_filter(data)
       attributes = data.deep_symbolize_keys
-      { name: attributes.fetch(:name), templateid: attributes.fetch(:templateid) }
+      { name: attributes.fetch(:name), hostid: attributes.fetch(:hostid) }
+    end
+
+    # 图形所有者由 gitems 确定，hostid 仅用于调用方的身份查询。
+    # @return [Integer, nil]
+    def create(data)
+      super(data.deep_symbolize_keys.except(:hostid))
+    end
+
+    # @return [Integer, nil] 更新的图形 ID
+    def update(data)
+      super(data.deep_symbolize_keys.except(:hostid))
     end
   end
 end

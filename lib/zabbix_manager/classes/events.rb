@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
-  class Events < Basic
+  class Events < Resource
     # 返回事件对象对应的 Zabbix API 方法前缀。
     #
     # @return [String]

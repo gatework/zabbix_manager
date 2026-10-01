@@ -1,118 +1,48 @@
 # Hosts
 
-This example assumes you have already initialized and connected the ZabbixManager.
+These examples use an initialized manager named `zbx`. SNMP interface `details`
+are supported by Zabbix 5.0 and later; consult the matching server API reference
+for older interface schemas.
 
-For more information and available properties please refer to the Zabbix API documentation for Hosts:
-[https://www.zabbix.com/documentation/4.0/manual/api/reference/host](https://www.zabbix.com/documentation/4.0/manual/api/reference/host)
+## Create or update a host
 
-## Create Host
+Supply groups and interfaces for a new host. Existing hosts may receive partial
+metadata updates. Fields omitted from `reconcile` remain unchanged.
+
 ```ruby
-zbx.hosts.create(
-  :host => host.fqdn,
-  :interfaces => [
-    {
-      :type => 1,
-      :main => 1,
-      :ip => '192.0.2.10',
-      :dns => 'server.example.org',
-      :port => 10050,
-      :useip => 0
-    }
-  ],
-  :groups => [ :groupid => zbx.hostgroups.get_id(:name => "hostgroup") ]
-)
-
-#or use:
 zbx.hosts.reconcile(
-  :host => host.fqdn,
-  :interfaces => [
-    {
-      :type => 1,
-      :main => 1,
-      :ip => '192.0.2.10',
-      :dns => 'server.example.org',
-      :port => 10050,
-      :useip => 0
-    }
-  ],
-  :groups => [ :groupid => zbx.hostgroups.get_id(:name => "hostgroup") ]
+  host: "router-01",
+  name: "Core router",
+  groups: [{ groupid: zbx.host_groups.get_or_create(name: "Routers") }],
+  interfaces: [{
+    type: 2, main: 1, useip: 1, ip: "192.0.2.10", dns: "", port: "161",
+    details: { version: 2, community: "{$SNMP_COMMUNITY}" }
+  }],
+  macros: [{ macro: "{$SNMP_COMMUNITY}", value: snmp_community }]
 )
 ```
 
-## Add SNMP Bulk Hosts
-hosts = [
-  { :group=>"Discovered Hosts", :hostname=>"zabbix", :ip => "127.0.0.1", :community_string=>"public", :template=>"123" },
-  { :group=>"Discovered Hosts", :hostname=>"zabbix", :ip => "127.0.0.1", :community_string=>"public", :template=>"123" }
-]
+Here `snmp_community` comes from the application's secret configuration.
 
-hosts.each do |h|
-  zbx.hosts.reconcile(
-    :host => h[:hostname],
-    :interfaces => [
-      {
-        :type => 2,
-        :main => 1,
-        :useip => 1,
-        :ip => h[:ip],
-        :dns => "",
-        :port => 161,
-        :details => {
-          :version => 2,
-          :community => "{$SNMP_COMMUNITY}"
-        }
-      }
-    ],
-    :groups => [ :groupid => zbx.hostgroups.get_id(:name => h[:group]) ],
-    :templates => [
-        {
-            :templateid => h[:template]
-        }
-    ],
-    :inventory_mode => 1,
-    :macros => [
-        {
-            :macro => "{$SNMP_COMMUNITY}",
-            :value => h[:community_string]
-        }
-    ]
-  )
-end
+## Update and query
 
-## Update Host
 ```ruby
-zbx.hosts.update(
-  :hostid => zbx.hosts.get_id(:host => "hostname"),
-  :status => 0
-)
-
-#You can check host:
-puts zbx.hosts.get_full_data(:host => "hostname")
-
-# ZabbixManager checks that new object differ from one in zabbix. But if you
-# want to update nested arguments (like interfaces), you should use second argument. 
-# For example:
-
-zbx.hosts.update({
-  :hostid => zbx.hosts.get_id(:host => "hostname"),
-  :interfaces => [
-    {
-      :type => 1,
-      :main => 1,
-      :ip => '192.0.2.10',
-      :dns => 'server.example.org',
-      :port => 10050,
-      :useip => 0
-    }
-  ]}, true)
+hostid = zbx.hosts.get_id(host: "router-01")
+zbx.hosts.update(hostid: hostid, status: 0)
+zbx.hosts.dump_by_id(hostid: hostid)
+zbx.hosts.get_full_data(host: "router-01")
 ```
 
+Use `reconcile` for interface changes, or `update_raw` when intentionally sending
+an unconditional API update. Every interface ID must belong to the selected host.
 
-## Get Host by id (See URL)
 ```ruby
-zbx.hosts.dump_by_id(:hostid => get_id(:host => "hostname"))
+zbx.hosts.reconcile(host: "router-01", interfaces: [{ interfaceid: 12, main: 1 }])
+zbx.hosts.update_raw(hostid: hostid, description: "Managed by operations")
 ```
 
-## Delete Host
+## Delete
+
 ```ruby
-zbx.hosts.delete zbx.hosts.get_id(:host => "hostname")
+zbx.hosts.delete(hostid)
 ```

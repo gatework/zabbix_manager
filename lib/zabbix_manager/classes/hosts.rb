@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
-  class Hosts < Basic
+  class Hosts < Resource
     # 返回主机对应的 Zabbix API 模块名。
     def method_name
       "host"
@@ -22,7 +22,6 @@ class ZabbixManager
 
     # 按主机 ID 查询完整主机及接口、群组和模板。
     def dump_by_id(data)
-      log "[DEBUG] Call dump_by_id with parameters: #{data.inspect}"
       @client.api_request(
         method: "host.get",
         params: {
@@ -35,16 +34,25 @@ class ZabbixManager
       )
     end
 
-    # 从指定主机批量解除模板关联。
-    def unlink_templates(data)
-      result = @client.api_request(
-        method: "host.massRemove",
-        params: {
-          hostids: data[:hosts_id],
-          templateids: data[:templates_id]
-        }
-      )
-      !result.empty?
+    # 向指定主机追加模板关联，保留现有模板。
+    # @return [Array<Integer>] 已更新主机 ID
+    def link_templates(host_ids:, template_ids:)
+      write_templates("massadd", host_ids, template_ids)
+    end
+
+    # 完整替换指定主机的模板关联，空模板集合明确清除全部关联。
+    # @return [Array<Integer>] 已更新主机 ID
+    def replace_templates(host_ids:, template_ids:)
+      write_templates("massupdate", host_ids, template_ids, allow_empty: true)
+    end
+
+    # 从指定主机解除选定模板的关联，保留模板生成的实体。
+    # @return [Array<Integer>] 已更新主机 ID
+    def unlink_templates(host_ids:, template_ids:)
+      ids = normalized_ids(host_ids)
+      templates = normalized_ids(template_ids)
+      result = @client.api_request(method: "host.massremove", params: { hostids: ids, templateids: templates })
+      response_ids(result, expected: ids)
     end
 
     # 使用显式群组和接口创建主机，不注入隐藏凭据。
@@ -52,7 +60,7 @@ class ZabbixManager
       attributes = default_options.merge(data.deep_symbolize_keys)
       validate_create_attributes!(attributes)
       result = @client.api_request(method: "host.create", params: attributes)
-      first_id(result, "hostids")
+      response_id(result)
     end
 
     # 规范化并校验设备定义，不执行远端查询或写入。
@@ -62,7 +70,7 @@ class ZabbixManager
       attributes = data.deep_symbolize_keys
       raise Invalid, "host is required" if attributes[:host].blank?
 
-      hostinterfaces.validate(attributes[:interfaces]) if attributes.key?(:interfaces)
+      host_interfaces.validate(attributes[:interfaces]) if attributes.key?(:interfaces)
       attributes
     end
 
@@ -90,19 +98,19 @@ class ZabbixManager
       attributes = attributes.dup
 
       interfaces = Array.wrap(attributes.delete(:interfaces))
-      hostinterfaces.validate(interfaces)
+      host_interfaces.validate(interfaces)
       update_attributes = attributes.merge(hostid: hostid)
-      @client.api_request(method: "host.update", params: update_attributes)
-      hostinterfaces.reconcile_for_host(hostid: hostid, interfaces: interfaces) if interfaces.any?
-      hostid.to_i
+      host_interfaces.reconcile_for_host(hostid: hostid, interfaces: interfaces) if interfaces.any?
+      result = @client.api_request(method: "host.update", params: update_attributes)
+      response_id(result, expected: [hostid])
     end
 
     # 查询指定主机的全部接口。
     def interfaces_for(hostid)
-      hostinterfaces.for_host(hostid)
+      host_interfaces.for_host(hostid)
     end
 
-    # 返回主机的第一个接口 ID；高频业务应优先使用 hostinterfaces。
+    # 返回主机的第一个接口 ID；高频业务应优先使用 host_interfaces。
     def get_interface_id(hostid)
       interfaces_for(hostid).first&.fetch("interfaceid", nil)
     end
@@ -139,95 +147,132 @@ class ZabbixManager
       find_host_by_filter(hostid: hostid)
     end
 
+    # 解析供流量查询和监控表达式使用的唯一主机；只执行读取。
+    # 显式 ID 与技术名必须同时匹配，候选名称不能分别指向不同主机。
+    # @param reference [String, Array<String>, Hash] 名称/IP/DNS 候选，或同时包含 hostid 和 host 的 Hash
+    # @return [Hash] 符号键主机属性，包含 hostid 和技术名 host
+    # @raise [Invalid] 本地主机引用无效
+    # @raise [ApiError] 主机不存在或当前 API 用户不可见
+    # @raise [Conflict] 候选不唯一，或 ID 与技术名不匹配
+    # @raise [ProtocolError] API 返回无效的主机身份
+    def resolve(reference)
+      if reference.is_a?(Hash)
+        expected = Monitoring::Validation.hash!(reference, "host")
+        Monitoring::Validation.host!(expected)
+        found = find_by_id(expected[:hostid])
+      else
+        candidates = Array.wrap(reference).map do |candidate|
+          Monitoring::Validation.text!(candidate, "host candidate").strip
+        end
+        raise Invalid, "host candidates are required" if candidates.empty?
+
+        found = find_by_candidates(candidates.uniq)
+      end
+      raise ApiError, "Zabbix host was not found for the supplied reference" unless found
+
+      resolved = resolved_host(found)
+      if expected && (resolved[:hostid].to_s != expected[:hostid].to_s || resolved[:host] != expected[:host])
+        raise Conflict, "hostid and technical host name do not refer to the same Zabbix host"
+      end
+
+      resolved
+    end
+
     # 批量启用或停用主机。
     # @return [Array<Integer>]
     def set_status(hostids, enabled:)
-      ids = Array(hostids).filter_map { |value| value.to_s.strip.presence }.uniq
-      raise Invalid, "hostids are required" if ids.empty?
+      validate_boolean!(enabled, "enabled")
+      ids = normalized_ids(hostids)
 
       params = ids.map { |hostid| { hostid: hostid, status: enabled ? 0 : 1 } }
       result = @client.api_request(method: "host.update", params: params)
-      Array(result.fetch("hostids")).map(&:to_i)
-    end
-
-    # 把可见名称对应的主机更新为稳定技术标识。
-    def update_host_to_serial(data)
-      attributes = data.deep_symbolize_keys
-      hostid = get_hostid_by_name(attributes[:name])
-      return nil unless hostid
-
-      attributes.delete(:templates)
-      @client.api_request(method: "host.update", params: attributes.merge(hostid: hostid))
-      hostid.to_i
+      response_ids(result, expected: ids)
     end
 
     private
 
-      # 校验创建主机所需的技术名、群组和接口。
-      def validate_create_attributes!(attributes)
-        raise Invalid, "host is required" if attributes[:host].blank?
-        raise Invalid, "groups are required when creating a host" if Array.wrap(attributes[:groups]).empty?
-        raise Invalid, "interfaces are required when creating a host" if Array.wrap(attributes[:interfaces]).empty?
+    # 远端身份损坏是协议错误，不能当作调用方输入错误或不存在处理。
+    def resolved_host(found)
+      resolved = Monitoring::Validation.hash!(found, "Zabbix host")
+      Monitoring::Validation.host!(resolved)
+      resolved
+    rescue Invalid
+      raise ProtocolError, "invalid host response: hostid and technical host are required", cause: nil
+    end
 
-        attributes[:interfaces] = hostinterfaces.validate_for_create(attributes[:interfaces])
-      end
+    def write_templates(operation, host_ids, template_ids, allow_empty: false)
+      ids = normalized_ids(host_ids)
+      templates = normalized_ids(template_ids, allow_empty: allow_empty)
+      result = @client.api_request(
+        method: "host.#{operation}",
+        params: {
+          hosts: ids.map { |id| { hostid: id } },
+          templates: templates.map { |id| { templateid: id } }
+        }
+      )
+      response_ids(result, expected: ids)
+    end
 
-      # 使用精确过滤查询唯一主机。
-      def find_host_by_filter(filter)
+    # 校验创建主机所需的技术名、群组和接口。
+    def validate_create_attributes!(attributes)
+      raise Invalid, "host is required" if attributes[:host].blank?
+      raise Invalid, "groups are required when creating a host" if Array.wrap(attributes[:groups]).empty?
+      raise Invalid, "interfaces are required when creating a host" if Array.wrap(attributes[:interfaces]).empty?
+
+      attributes[:interfaces] = host_interfaces.validate_for_create(attributes[:interfaces])
+    end
+
+    # 使用精确过滤查询唯一主机。
+    def find_host_by_filter(filter)
+      result = @client.api_request(
+        method: "host.get",
+        params: {
+          output: %w[hostid host name status],
+          filter: filter,
+          selectInterfaces: %w[interfaceid ip dns]
+        }
+      )
+      raise Conflict, "host lookup is ambiguous for #{filter.inspect}" if result.length > 1
+
+      response_identifier(result.first["hostid"]) if result.first
+      result.first
+    end
+
+    # 按 IP 和 DNS 端点查询唯一主机接口。
+    def find_interface_by_endpoint(candidate)
+      matches = []
+      %i[ip dns].each do |field|
         result = @client.api_request(
-          method: "host.get",
-          params: {
-            output: %w[hostid host name status],
-            filter: filter,
-            selectInterfaces: %w[interfaceid ip dns]
-          }
+          method: "hostinterface.get",
+          params: { filter: { field => candidate }, output: ["hostid"] }
         )
-        raise Conflict, "host lookup is ambiguous for #{filter.inspect}" if result.length > 1
-
-        result.first
+        matches.concat(result)
       end
+      matches.uniq! { |interface| interface.fetch("hostid") }
+      raise Conflict, "interface endpoint #{candidate} belongs to multiple hosts" if matches.length > 1
 
-      # 按 IP 和 DNS 端点查询唯一主机接口。
-      def find_interface_by_endpoint(candidate)
-        matches = []
-        %i[ip dns].each do |field|
-          result = @client.api_request(
-            method: "hostinterface.get",
-            params: { filter: { field => candidate }, output: ["hostid"] }
-          )
-          matches.concat(result)
-        end
-        matches.uniq! { |interface| interface.fetch("hostid") }
-        raise Conflict, "interface endpoint #{candidate} belongs to multiple hosts" if matches.length > 1
+      matches.first
+    end
 
-        matches.first
-      end
+    # 只查询唯一主机 ID。
+    def find_host_id(filter)
+      result = @client.api_request(
+        method: "host.get",
+        params: {
+          output: ["hostid"],
+          filter: filter
+        }
+      )
+      raise Conflict, "host lookup is ambiguous for #{filter.inspect}" if result.length > 1
 
-      # 只查询唯一主机 ID。
-      def find_host_id(filter)
-        result = @client.api_request(
-          method: "host.get",
-          params: {
-            output: ["hostid"],
-            filter: filter
-          }
-        )
-        raise Conflict, "host lookup is ambiguous for #{filter.inspect}" if result.length > 1
+      response_identifier(result.first["hostid"]).to_s if result.first
+    end
 
-        result.first&.fetch("hostid", nil)
-      end
-
-      # 从 Zabbix 创建响应中提取首个整数 ID。
-      def first_id(result, key_name)
-        value = result.fetch(key_name).first
-        value && value.to_i
-      end
-
-      # 延迟构建接口模块并复用当前客户端。
-      # @return [HostInterfaces]
-      # @api private
-      def hostinterfaces
-        @hostinterfaces ||= HostInterfaces.new(@client)
-      end
+    # 延迟构建接口模块并复用当前客户端。
+    # @return [HostInterfaces]
+    # @api private
+    def host_interfaces
+      @host_interfaces ||= HostInterfaces.new(@client)
+    end
   end
 end

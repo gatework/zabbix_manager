@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+* Extract reusable Motor monitoring scenarios through native Zabbix APIs only, without SQL or application persistence.
+* Add `traffic.series` and `traffic.for_interface` for precise history/trend reads with missing-data and truncation states.
+* Add device name resolution, proxy groups, SNMP secret macros and caller-owned membership receipts; preserve unrelated configuration.
+* Add line previews, low-traffic/status/ICMP checks, dependencies, scoped problem reads and managed trigger retirement.
+* Return device receipts and per-kind line `triggerids`; expand public method contracts and executable workflow examples.
+
+* Validate mutation receipts against requested IDs; empty, malformed or mismatched receipts remain unconfirmed outcomes.
+* Require desired trigger state during lost-response recovery and serialize dependency replacement with appends.
+* Replace obsolete template-side host-link helpers with `hosts.link_templates`, `replace_templates`, and `unlink_templates` using current host APIs.
+* Use explicit `user_groups.replace_users` and `replace_host_group_permissions` operations with version-correct server fields.
+* Verify packaged source inventory and isolated authenticated requests, then publish the exact verified artifact; declare IRB for Ruby 4 development consoles.
+
+* Normalize multiword resource classes, files and accessors to Ruby CamelCase/snake_case without compatibility aliases.
+
+* Require Ruby 3.4 or newer; refresh the dependency lockfile and remove development-tool version pins and duplicate declarations.
+* Replace the split `Basic` hierarchy with `Resource`, remove compatibility aliases and parameter logging, and use keyword connection/request options.
+* Use ActiveSupport logger/tagging/parameter filtering; make logging failure independent of API results.
+* Add explicit `from_env` loading for `ZABBIX_URL`, `ZABBIX_API_TOKEN`, `ZABBIX_USERNAME`, and `ZABBIX_PASSWORD` only.
+* Remove `current`, `user`, `debug`, `manager_request`, low-level client request helpers and legacy inventory field aliases; use explicit managers, `username`, `logger`/`log_level` and canonical monitoring fields.
+* Validate JSON-RPC response shapes and IDs, report unconfirmed responses as `ProtocolError`, and prevent server text or exception causes from leaking secrets.
+* Delegate proxy discovery and exclusions to Ruby, validate finite timeouts, and avoid closing an inherited parent TLS session after fork.
+* Validate complete interface/item batches before writes, refuse ambiguous macro ownership, and distinguish missing values from empty strings during updates.
+* Separate monitoring input, threshold and traffic-item rules, reject invalid units/expressions, and retain unknown write outcomes in batch results.
+
 * Add Zabbix 7.x API-token authentication through the Bearer header while retaining the legacy 4.x-6.x authentication body.
 * Reuse a thread-safe persistent `Net::HTTP` session and add explicit `close` lifecycle handling.
 * Add injectable, credential-filtered request logging and stable JSON-RPC error handling.

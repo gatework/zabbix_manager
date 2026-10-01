@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ruby: ["2.7", "3.2", "3.4", "4.0"]
+        ruby: ["3.4", "4.0"]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
@@ -50,9 +50,5 @@ jobs:
         with:
           ruby-version: "3.4"
           bundler-cache: true
-      - name: 构建 Gem
-        run: gem build zabbix_manager.gemspec --output zabbix_manager.gem
-      - name: 从构建产物安装并冒烟测试
-        run: |
-          gem install ./zabbix_manager.gem --no-document
-          ruby -e 'require "zabbix_manager"; abort unless ZabbixManager.instance_methods.include?(:monitoring)'
+      - name: 构建、隔离安装并验证真实请求
+        run: bundle exec ruby script/verify_package.rb

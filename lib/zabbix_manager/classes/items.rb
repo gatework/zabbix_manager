@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
-  class Items < Basic
+  class Items < Resource
     DEFAULT_OPTIONS = {
       delay: "1m",
       history: "1h",
@@ -17,13 +17,6 @@ class ZabbixManager
     # @return [String]
     def method_name
       "item"
-    end
-
-    # 使用名称作为通用 CRUD 的业务标识。
-    #
-    # @return [String]
-    def identify
-      "name"
     end
 
     # 返回创建监控项时的克制默认值。
@@ -68,22 +61,7 @@ class ZabbixManager
     # 按 hostid + key_ 幂等创建或更新监控项。
     # @return [Integer]
     def upsert_by_key(data)
-      attributes = validate_item!(data)
-
-      current = find_by_key(hostid: attributes[:hostid], key: attributes[:key_])
-      if current
-        itemid = current.fetch("itemid")
-        @client.api_request(
-          method: "item.update",
-          params: attributes.except(:hostid).merge(itemid: itemid)
-        )
-        itemid.to_i
-      else
-        create_attributes = default_options.merge(attributes)
-        validate_create_item!(create_attributes)
-        result = @client.api_request(method: "item.create", params: create_attributes)
-        result.fetch("itemids").first.to_i
-      end
+      apply_item(*plan_item(validate_item!(data)))
     end
 
     # 先校验整批数据，再按稳定 key 逐项幂等写入。
@@ -94,28 +72,30 @@ class ZabbixManager
       duplicate = identities.tally.find { |_identity, count| count > 1 }&.first
       raise Invalid, "duplicate hostid + key_ identity #{duplicate.join(":")}" if duplicate
 
-      items.map { |item| upsert_by_key(item) }
+      plans = items.map { |item| plan_item(item) }
+      plans.map { |attributes, current| apply_item(attributes, current) }
     end
 
     # 批量启用或停用监控项。
     # @return [Array<Integer>]
     def set_status(hostid:, itemids:, enabled:)
-      ids = normalized_ids(itemids, "itemids")
+      validate_boolean!(enabled, "enabled")
+      ids = normalized_ids(itemids)
       verify_host_ownership!(hostid, ids)
       result = @client.api_request(
         method: "item.update",
         params: ids.map { |itemid| { itemid: itemid, status: enabled ? 0 : 1 } }
       )
-      Array(result.fetch("itemids")).map(&:to_i)
+      response_ids(result, expected: ids)
     end
 
     # 批量删除明确指定的监控项。
     # @return [Array<Integer>]
     def delete_many(hostid:, itemids:)
-      ids = normalized_ids(itemids, "itemids")
+      ids = normalized_ids(itemids)
       verify_host_ownership!(hostid, ids)
       result = @client.api_request(method: "item.delete", params: ids)
-      Array(result.fetch("itemids")).map(&:to_i)
+      response_ids(result, expected: ids)
     end
 
     # 返回主机中可能表示接口流量的已启用监控项。
@@ -127,7 +107,7 @@ class ZabbixManager
         params: {
           hostids: [hostid],
           monitored: true,
-          output: %w[itemid hostid name key_ snmp_oid value_type status units],
+          output: %w[itemid hostid name key_ type snmp_oid value_type status units],
           selectPreprocessing: "extend",
           sortfield: "name",
           sortorder: "ASC"
@@ -143,7 +123,7 @@ class ZabbixManager
       raise Invalid, "dns_name is required" if name.blank?
       raise Invalid, "dns_name contains unsupported item key delimiters" if name.match?(/[\[\],]/)
 
-      itemid = upsert_by_key(
+      upsert_by_key(
         hostid: hostid,
         interfaceid: interfaceid,
         name: "【DNS域名解析监控】#{name}",
@@ -154,72 +134,84 @@ class ZabbixManager
         history: "90d",
         timeout: "3s"
       )
-      log "Ensured DNS monitoring item for #{name}"
-      itemid
-    rescue StandardError => e
-      log "Failed to ensure DNS monitoring item: #{e.class}"
-      raise
     end
 
     private
 
-      # 规范化并校验幂等写入所需字段。
-      # @return [Hash]
-      # @api private
-      def validate_item!(data)
-        attributes = data.deep_symbolize_keys
-        raise Invalid, "hostid is required" if attributes[:hostid].blank?
-        raise Invalid, "key_ is required" if attributes[:key_].blank?
-        raise Invalid, "name is required" if attributes[:name].blank?
+    # 创建必填字段必须在整批写入开始前校验。
+    def plan_item(attributes)
+      current = find_by_key(hostid: attributes[:hostid], key: attributes[:key_])
+      validate_item_type!(attributes[:type]) if attributes.key?(:type)
+      response_identifier(current["itemid"]) if current
+      unless current
+        attributes = default_options.merge(attributes)
+        validate_create_item!(attributes)
+      end
+      [attributes, current]
+    end
 
-        attributes
+    def apply_item(attributes, current)
+      if current
+        itemid = current.fetch("itemid")
+        result = @client.api_request(method: "item.update", params: attributes.except(:hostid).merge(itemid: itemid))
+        response_id(result, expected: [itemid])
+      else
+        result = @client.api_request(method: "item.create", params: attributes)
+        response_id(result)
+      end
+    end
+
+    # 规范化并校验幂等写入所需字段。
+    # @return [Hash]
+    # @api private
+    def validate_item!(data)
+      attributes = data.deep_symbolize_keys
+      raise Invalid, "hostid is required" if attributes[:hostid].blank?
+      raise Invalid, "key_ is required" if attributes[:key_].blank?
+      raise Invalid, "name is required" if attributes[:name].blank?
+
+      attributes
+    end
+
+    # 校验 item.create 的通用必填字段和 SNMP 条件字段。
+    def validate_create_item!(attributes)
+      raise Invalid, "type is required when creating an item" if attributes[:type].blank?
+      raise Invalid, "value_type is required when creating an item" if attributes[:value_type].blank?
+
+      type = validate_item_type!(attributes[:type])
+
+      if REQUIRED_INTERFACE_TYPES.include?(type) && attributes[:interfaceid].blank?
+        raise Invalid, "interfaceid is required for item type #{type}"
+      end
+      if REQUIRED_PARAMS_TYPES.include?(type) && attributes[:params].blank?
+        raise Invalid, "params is required for item type #{type}"
       end
 
-      # 校验 item.create 的通用必填字段和 SNMP 条件字段。
-      def validate_create_item!(attributes)
-        raise Invalid, "type is required when creating an item" if attributes[:type].blank?
-        raise Invalid, "value_type is required when creating an item" if attributes[:value_type].blank?
+      raise Invalid,
+            "master_itemid is required for a dependent item" if type == 18 && attributes[:master_itemid].blank?
+      raise Invalid, "url is required for an HTTP item" if type == 19 && attributes[:url].blank?
+      return unless type == 20
 
-        type = Integer(attributes[:type])
-        raise Invalid, "unsupported item type #{type}" unless ITEM_TYPES.include?(type)
+      raise Invalid, "snmp_oid is required for an SNMP item" if attributes[:snmp_oid].blank?
+    end
 
-        if REQUIRED_INTERFACE_TYPES.include?(type) && attributes[:interfaceid].blank?
-          raise Invalid, "interfaceid is required for item type #{type}"
-        end
-        if REQUIRED_PARAMS_TYPES.include?(type) && attributes[:params].blank?
-          raise Invalid, "params is required for item type #{type}"
-        end
+    def validate_item_type!(value)
+      type = integer_attribute(value, "type")
+      raise Invalid, "unsupported item type #{type}" unless ITEM_TYPES.include?(type)
 
-        raise Invalid,
-              "master_itemid is required for a dependent item" if type == 18 && attributes[:master_itemid].blank?
-        raise Invalid, "url is required for an HTTP item" if type == 19 && attributes[:url].blank?
-        return unless type == 20
+      type
+    end
 
-        raise Invalid, "snmp_oid is required for an SNMP item" if attributes[:snmp_oid].blank?
-      rescue ArgumentError, TypeError
-        raise Invalid, "type must be a supported integer"
-      end
+    # 回查监控项归属，阻止共享高权限令牌跨主机修改。
+    def verify_host_ownership!(hostid, ids)
+      raise Invalid, "hostid is required" if hostid.blank?
 
-      # 回查监控项归属，阻止共享高权限令牌跨主机修改。
-      def verify_host_ownership!(hostid, ids)
-        raise Invalid, "hostid is required" if hostid.blank?
-
-        result = @client.api_request(
-          method: "item.get", params: { hostids: hostid, itemids: ids, output: ["itemid"] }
-        )
-        owned_ids = result.map { |item| item.fetch("itemid").to_s }
-        foreign_ids = ids - owned_ids
-        raise Conflict, "items do not belong to host #{hostid}: #{foreign_ids.join(", ")}" if foreign_ids.any?
-      end
-
-      # 统一批量 ID 并拒绝空集合。
-      # @return [Array<String>]
-      # @api private
-      def normalized_ids(values, name)
-        ids = Array(values).filter_map { |value| value.to_s.strip.presence }.uniq
-        raise Invalid, "#{name} are required" if ids.empty?
-
-        ids
-      end
+      result = @client.api_request(
+        method: "item.get", params: { hostids: hostid, itemids: ids, output: ["itemid"] }
+      )
+      owned_ids = result.map { |item| item.fetch("itemid").to_s }
+      foreign_ids = ids - owned_ids
+      raise Conflict, "items do not belong to host #{hostid}: #{foreign_ids.join(", ")}" if foreign_ids.any?
+    end
   end
 end

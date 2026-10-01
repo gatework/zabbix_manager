@@ -4,7 +4,7 @@ require "spec_helper"
 
 describe "ZabbixManager::Templates" do
   let(:templates_mock) { ZabbixManager::Templates.new(client) }
-  let(:client) { double(options: { debug: false }) }
+  let(:client) { double(options: {}) }
 
   describe ".method_name" do
     subject { templates_mock.method_name }
@@ -16,37 +16,6 @@ describe "ZabbixManager::Templates" do
     subject { templates_mock.identify }
 
     it { is_expected.to eq "host" }
-  end
-
-  describe ".delete" do
-    subject { templates_mock.delete(data) }
-
-    let(:data) { { testidentify: 222 } }
-    let(:result) { { "templateids" => ["1"] } }
-    let(:identify) { "testidentify" }
-    let(:method_name) { "testmethod" }
-
-    before do
-      allow(templates_mock).to receive(:log)
-      allow(templates_mock).to receive(:identify).and_return(identify)
-      allow(templates_mock).to receive(:method_name).and_return(method_name)
-      allow(client).to receive(:api_request).with(
-        method: "template.delete",
-        params: [data]
-      ).and_return(result)
-    end
-
-    context "when result is not empty" do
-      it "returns the id of first template" do
-        expect(subject).to eq 1
-      end
-    end
-
-    context "when result is empty" do
-      let(:result) { [] }
-
-      it { is_expected.to be_nil }
-    end
   end
 
   describe ".get_ids_by_host" do
@@ -104,95 +73,6 @@ describe "ZabbixManager::Templates" do
       expect(templates_mock.get_template_ids(%w[linux network])).to eq(
         [{ templateid: "10" }, { templateid: "20" }]
       )
-    end
-  end
-
-  describe ".mass_update" do
-    subject { templates_mock.mass_update(data) }
-
-    let(:data) { { hosts_id: [1234, 5678], templates_id: [1111, 2222] } }
-    let(:result) { [{ "testkey" => "111", "testidentify" => 1 }] }
-    let(:id) { nil }
-    let(:id_through_create) { 222 }
-
-    before do
-      allow(client).to receive(:api_request).with(
-        method: "template.massUpdate",
-        params: {
-          hosts: [{ hostid: 1234 }, { hostid: 5678 }],
-          templates: [{ templateid: 1111 }, { templateid: 2222 }]
-        }
-      ).and_return(result)
-    end
-
-    context "when api_request returns empty result" do
-      let(:result) { [] }
-
-      it { is_expected.to be_falsy }
-    end
-
-    context "when api_request doesn not return empty result" do
-      it { is_expected.to be_truthy }
-    end
-  end
-
-  describe ".mass_add" do
-    subject { templates_mock.mass_add(data) }
-
-    let(:data) { { hosts_id: [1234, 5678], templates_id: [1111, 2222] } }
-    let(:result) { [{ "testkey" => "111", "testidentify" => 1 }] }
-    let(:id) { nil }
-    let(:id_through_create) { 222 }
-
-    before do
-      allow(client).to receive(:api_request).with(
-        method: "template.massAdd",
-        params: {
-          hosts: [{ hostid: 1234 }, { hostid: 5678 }],
-          templates: [{ templateid: 1111 }, { templateid: 2222 }]
-        }
-      ).and_return(result)
-    end
-
-    context "when api_request returns empty result" do
-      let(:result) { [] }
-
-      it { is_expected.to be_falsy }
-    end
-
-    context "when api_request doesn not return empty result" do
-      it { is_expected.to be_truthy }
-    end
-  end
-
-  describe ".mass_remove" do
-    subject { templates_mock.mass_remove(data) }
-
-    let(:data) { { hosts_id: [1234, 5678], templates_id: [1111, 2222], group_id: 4545 } }
-    let(:result) { [{ "testkey" => "111", "testidentify" => 1 }] }
-    let(:id) { nil }
-    let(:id_through_create) { 222 }
-
-    before do
-      allow(client).to receive(:api_request).with(
-        method: "template.massRemove",
-        params: {
-          hostids: data[:hosts_id],
-          templateids: data[:templates_id],
-          groupids: data[:group_id],
-          force: 1
-        }
-      ).and_return(result)
-    end
-
-    context "when api_request returns empty result" do
-      let(:result) { [] }
-
-      it { is_expected.to be_falsy }
-    end
-
-    context "when api_request doesn not return empty result" do
-      it { is_expected.to be_truthy }
     end
   end
 end

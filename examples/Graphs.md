@@ -1,63 +1,27 @@
 # Graphs
 
-This example assumes you have already initialized and connected the ZabbixManager.
+These examples use an initialized manager named `zbx`.
 
-For more information and available properties please refer to the Zabbix API documentation for Graphs:
-[https://www.zabbix.com/documentation/4.0/manual/api/reference/graph](https://www.zabbix.com/documentation/4.0/manual/api/reference/graph)
+Graph ownership is determined by its items. For `create_or_update`, `hostid`
+identifies the owning host or template during lookup and is omitted from the
+write request. The API's `templateid` is the inherited source graph ID.
 
-## Create Graph
 ```ruby
-gitems = {
-  :itemid => zbx.items.get_id(:name => "item"),
-  :calc_fnc => "2",
-  :type => "0",
-  :periods_cnt => "5"
-}
+hostid = zbx.hosts.get_id(host: "router-01")
+item = zbx.items.find_by_key(hostid: hostid, key: "system.uptime")
 
-zbx.graphs.create(
-  :gitems => [gitems],
-  :show_triggers => "0",
-  :name => "graph",
-  :width => "900",
-  :height => "200",
-  :hostid => zbx.templates.get_id(:host => "template")
+graphid = zbx.graphs.create_or_update(
+  name: "System uptime",
+  hostid: hostid,
+  width: 900,
+  height: 200,
+  gitems: [{ itemid: item.fetch("itemid"), color: "00AA00" }]
 )
 ```
 
-## Update Graph
 ```ruby
-zbx.graphs.update(
-  :graphid => zbx.graphs.get_id(:name => "graph"),
-  :ymax_type => 1
-)
-
-#Also you can use:
-gitems = {
-  :itemid => zbx.items.get_id(:name => "item"),
-  :calc_fnc => "3",
-  :type => "0",
-  :periods_cnt => "5"
-}
-zbx.graphs.create_or_update(
-  :gitems => [gitems],
-  :show_triggers => "1",
-  :name => graph,
-  :width => "900",
-  :height => "200",
-  :hostid => zbx.templates.get_id(:host => "template")
-)
+zbx.graphs.get_ids_by_host(host: "router-01", filter: "uptime")
+zbx.graphs.get_items(graphid)
+zbx.graphs.update(graphid: graphid, ymax_type: 1)
+zbx.graphs.delete(graphid)
 ```
-
-## Get Graph ids by Host ###
-```ruby
-zbx.graphs.get_ids_by_host(:host => "hostname")
-
-#You can filter graph name:
-zbx.graphs.get_ids_by_host(:host => "hostname", filter => "CPU")
-```
-
-## Delete Graph
-```ruby
-zbx.graphs.delete(zbx.graphs.get_id(:name => "graph"))
-```
-

@@ -1,26 +1,12 @@
 # frozen_string_literal: true
 
 class ZabbixManager
-  class Roles < Basic
+  class Roles < Resource
     # 返回 Zabbix API 中角色对象的方法名前缀。
     #
     # @return [String] 角色对象的方法名前缀
     def method_name
       "role"
-    end
-
-    # 返回角色对象的主键字段名。
-    #
-    # @return [String] 角色对象的主键字段名
-    def key
-      "roleid"
-    end
-
-    # 返回用于唯一识别角色的业务字段名。
-    #
-    # @return [String] 角色对象的业务标识字段名
-    def identify
-      "name"
     end
 
     # 更新指定角色的权限规则。
@@ -34,6 +20,8 @@ class ZabbixManager
       raise Invalid, "roleid is required" if attributes[:roleid].blank?
       raise Invalid, "rules is required" if attributes[:rules].blank?
 
+      normalized_ids([attributes[:roleid]])
+
       result = @client.api_request(
         method: "role.update",
         params: {
@@ -41,7 +29,7 @@ class ZabbixManager
           rules: attributes[:rules]
         }
       )
-      result.fetch("roleids").first.to_i
+      response_id(result, expected: [attributes[:roleid]])
     end
 
     # 按角色 ID 获取角色详情及完整规则。
@@ -51,8 +39,6 @@ class ZabbixManager
     # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
     # @return [Array<Hash>] 匹配的角色详情
     def dump_by_id(data)
-      log "[DEBUG] Call dump_by_id with parameters: #{data.inspect}"
-
       @client.api_request(
         method: "role.get",
         params: {

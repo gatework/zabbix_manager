@@ -1,8 +1,9 @@
 # frozen_string_literal: true
 
 class ZabbixManager
-  class Triggers < Basic
+  class Triggers < Resource
     DEFAULT_UNCERTAIN_WRITE_DELAYS = [0, 0.25, 1, 2].freeze
+    MAX_MANAGED_KEY_LENGTH = 200
     # 返回触发器对应的 Zabbix API 模块名。
     #
     # @return [String]
@@ -24,8 +25,6 @@ class ZabbixManager
     # @raise [TransportError] Error raised when HTTP status from Zabbix Server response is not a 200 OK.
     # @return [Hash]
     def dump_by_id(data)
-      log "[DEBUG] Call dump_by_id with parameters: #{data.inspect}"
-
       @client.api_request(
         method: "trigger.get",
         params: {
@@ -74,6 +73,9 @@ class ZabbixManager
     end
 
     # 按管理标签查询唯一触发器。
+    # 展开表达式并读取依赖，供不确定写入后的完整期望状态核对。
+    # @param hostid [Integer, String] 触发器所属主机
+    # @param managed_key [String] 稳定、非秘密的受管身份
     # @return [Hash, nil]
     def find_managed_for_host(hostid:, managed_key:)
       result = @client.api_request(
@@ -81,7 +83,9 @@ class ZabbixManager
         params: {
           hostids: hostid,
           tags: [{ tag: "zabbix_manager_id", value: managed_key, operator: 1 }],
-          output: ["triggerid", "description"],
+          output: "extend",
+          expandExpression: true,
+          selectDependencies: ["triggerid"],
           selectTags: "extend"
         }
       )
@@ -114,13 +118,14 @@ class ZabbixManager
     # 批量启用或停用触发器。
     # @return [Array<Integer>]
     def set_status(hostid:, triggerids:, enabled:)
+      validate_boolean!(enabled, "enabled")
       ids = normalized_ids(triggerids)
       verify_host_ownership!(hostid, ids)
       result = @client.api_request(
         method: "trigger.update",
         params: ids.map { |triggerid| { triggerid: triggerid, status: enabled ? 0 : 1 } }
       )
-      Array(result.fetch("triggerids")).map(&:to_i)
+      response_ids(result, expected: ids)
     end
 
     # 批量删除明确指定的触发器。
@@ -129,13 +134,14 @@ class ZabbixManager
       ids = normalized_ids(triggerids)
       verify_host_ownership!(hostid, ids)
       result = @client.api_request(method: "trigger.delete", params: ids)
-      Array(result.fetch("triggerids")).map(&:to_i)
+      response_ids(result, expected: ids)
     end
 
     # 使用 trigger.update 完整替换一个触发器的依赖集合。
     # 传入空集合可清除依赖，返回被更新的触发器 ID。
     # @return [Integer]
     def replace_dependencies(hostid:, triggerid:, depends_on:, allow_cross_host_dependencies: false)
+      validate_boolean!(allow_cross_host_dependencies, "allow_cross_host_dependencies")
       id = normalized_ids([triggerid]).first
       dependency_ids = normalized_ids(depends_on, allow_empty: true)
       dependencies = dependency_ids.map { |value| { triggerid: value } }
@@ -143,13 +149,14 @@ class ZabbixManager
 
       verify_host_ownership!(hostid, [id])
       verify_host_ownership!(hostid, dependency_ids) if dependency_ids.any? && !allow_cross_host_dependencies
-      update_dependencies(id, dependencies)
+      @client.with_upsert_lock("trigger-dependencies:#{id}") { update_dependencies(id, dependencies) }
     end
 
     # 在保留现有依赖的前提下，为触发器追加一个或多个依赖。
     # 读改写过程按触发器 ID 加锁，跨进程可通过 Client 的 upsert_lock 协调。
     # @return [Integer]
     def add_dependencies(hostid:, triggerid:, depends_on:, allow_cross_host_dependencies: false)
+      validate_boolean!(allow_cross_host_dependencies, "allow_cross_host_dependencies")
       id = normalized_ids([triggerid]).first
       additions = normalized_ids(depends_on)
       raise Invalid, "trigger cannot depend on itself" if additions.include?(id)
@@ -177,26 +184,18 @@ class ZabbixManager
       attributes = data.deep_symbolize_keys
       hostid = attributes.delete(:hostid)
       managed_key = attributes.delete(:managed_key)&.to_s
-      legacy_identity_tags = attributes.delete(:legacy_identity_tags)
       raise Invalid, "hostid is required" if hostid.blank?
       raise Invalid, "description is required" if attributes[:description].blank?
       raise Invalid, "expression is required" if attributes[:expression].blank?
 
       if managed_key.present?
-        raise Invalid, "managed_key is too long" if managed_key.length > 200
+        raise Invalid, "managed_key is too long" if managed_key.length > MAX_MANAGED_KEY_LENGTH
 
         attributes[:tags] = Array(attributes[:tags]).reject do |tag|
           tag[:tag].to_s == "zabbix_manager_id" || tag["tag"].to_s == "zabbix_manager_id"
         end
         attributes[:tags] << { tag: "zabbix_manager_id", value: managed_key }
         current = find_managed_for_host(hostid: hostid, managed_key: managed_key)
-        if current.nil? && legacy_identity_tags.present?
-          current = find_for_host(
-            hostid: hostid,
-            description: attributes[:description],
-            tags: legacy_identity_tags
-          )
-        end
       else
         ownership_tags = Array(attributes[:tags]).select do |tag|
           tag[:tag].to_s == "managed_by" || tag["tag"].to_s == "managed_by"
@@ -204,48 +203,55 @@ class ZabbixManager
         current = find_for_host(hostid: hostid, description: attributes[:description], tags: ownership_tags)
       end
       if current
-        triggerid = current.fetch("triggerid")
+        triggerid = current["triggerid"]
+        response_identifier(triggerid)
         attributes[:tags] = merge_tags(current["tags"], attributes[:tags]) if attributes[:tags]
-        @client.api_request(method: "trigger.update", params: attributes.merge(triggerid: triggerid))
-        triggerid.to_i
+        result = @client.api_request(method: "trigger.update", params: attributes.merge(triggerid: triggerid))
+        response_id(result, expected: [triggerid])
       else
         create_managed_trigger(hostid, managed_key, attributes)
       end
     end
 
-    # 创建触发器；若响应丢失或并发冲突则按管理键回读收敛。
+    # 创建触发器；响应丢失时按管理键回读并核对期望状态。
     # @return [Integer]
     # @api private
     private def create_managed_trigger(hostid, managed_key, attributes)
       result = @client.api_request(method: "trigger.create", params: attributes)
-      result.fetch("triggerids").first.to_i
+      response_id(result)
     rescue TransportError => original_error
-      current = recover_created_trigger(hostid: hostid, managed_key: managed_key) if managed_key.present?
-      return current.fetch("triggerid").to_i if current
+      if managed_key.present?
+        current = recover_created_trigger(hostid: hostid, managed_key: managed_key, attributes: attributes)
+      end
+      return response_identifier(current["triggerid"]) if current
 
       raise ResultUnknown,
             "trigger create result is unknown; inspect managed key #{managed_key.inspect} before retrying: " \
             "#{original_error.message}"
-    rescue ApiError => original_error
-      current = recover_created_trigger(hostid: hostid, managed_key: managed_key) if managed_key.present?
-      return current.fetch("triggerid").to_i if current
-
-      raise original_error
     end
 
     # 对结果不确定的创建执行短暂退避回读，不重放写请求。
     # @return [Hash, nil]
     # @api private
-    private def recover_created_trigger(hostid:, managed_key:)
+    private def recover_created_trigger(hostid:, managed_key:, attributes:)
       delays = @client.options.fetch(:uncertain_write_delays, DEFAULT_UNCERTAIN_WRITE_DELAYS)
       delays.each do |delay|
         sleep(delay) if delay.positive?
         current = find_managed_for_host(hostid: hostid, managed_key: managed_key)
-        return current if current
+        if current && recovered_trigger_matches?(current, attributes)
+          response_identifier(current["triggerid"])
+          return current
+        end
       rescue ApiError, TransportError
         next
       end
       nil
+    end
+
+    private def recovered_trigger_matches?(current, attributes)
+      desired_tags = Array(attributes[:tags]).map(&:deep_symbolize_keys)
+      actual_tags = Array(current["tags"]).map(&:deep_symbolize_keys)
+      attributes_match?(current, attributes.except(:tags)) && (desired_tags - actual_tags).empty?
     end
 
     # 合并受管标签，同时保留调用方未覆盖的运维标签。
@@ -258,16 +264,6 @@ class ZabbixManager
         desired_names.include?(tag[:tag].to_s)
       end
       retained + desired
-    end
-
-    # 统一触发器 ID 并拒绝空集合。
-    # @return [Array<String>]
-    # @api private
-    private def normalized_ids(values, allow_empty: false)
-      ids = Array(values).filter_map { |value| value.to_s.strip.presence }.uniq
-      raise Invalid, "triggerids are required" if ids.empty? && !allow_empty
-
-      ids
     end
 
     # 回查触发器归属，阻止共享高权限令牌跨主机修改。
@@ -287,7 +283,7 @@ class ZabbixManager
       result = @client.api_request(
         method: "trigger.update", params: { triggerid: triggerid, dependencies: dependencies }
       )
-      result.fetch("triggerids").first.to_i
+      response_id(result, expected: [triggerid])
     end
   end
 end

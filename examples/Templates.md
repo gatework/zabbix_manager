@@ -1,37 +1,30 @@
 # Templates
 
-This example assumes you have already initialized and connected the ZabbixManager.
+These examples use an initialized manager named `zbx`. Supply an existing template
+group ID appropriate to the server version; Zabbix 6.2 and later distinguish
+host groups from template groups. See the [template API](https://www.zabbix.com/documentation/7.0/en/manual/api/reference/template).
 
-For more information and available properties please refer to the Zabbix API documentation for Templates:
-[https://www.zabbix.com/documentation/4.0/manual/api/reference/template](https://www.zabbix.com/documentation/4.0/manual/api/reference/template)
+## Create a template
 
-## Create Template
 ```ruby
-zbx.templates.create(
-  :host => "template",
-  :groups => [:groupid => zbx.hostgroups.get_id(:name => "hostgroup")]
-)
+zbx.templates.create(host: "Router template", groups: [{ groupid: 20 }])
 ```
 
-## Mass (Un)Link Host with Templates
-```ruby
-zbx.templates.mass_add(
-  :hosts_id => [zbx.hosts.get_id(:host => "hostname")],
-  :templates_id => [111, 214]
-)
+## Manage host template links
 
-zbx.templates.mass_remove(
-  :hosts_id => [zbx.hosts.get_id(:host => "hostname")],
-  :templates_id => [111, 214]
-)
+Host-side operations preserve a clear boundary: link adds, unlink removes the
+listed links, and replace sets the complete list. An empty replacement explicitly
+clears all links. They return the confirmed host IDs.
+
+```ruby
+host_ids = [zbx.hosts.get_id(host: "router-01")]
+zbx.hosts.link_templates(host_ids: host_ids, template_ids: [111, 214])
+zbx.hosts.unlink_templates(host_ids: host_ids, template_ids: [214])
+zbx.hosts.replace_templates(host_ids: host_ids, template_ids: [111])
 ```
 
-## Get all Templates linked with Host
+## Find linked templates
+
 ```ruby
-zbx.templates.get_ids_by_host( :hostids => [zbx.hosts.get_id(:host => "hostname")] )
-#returned array:
-#[
-#   "10",
-#   "1021"
-#]
+zbx.templates.get_ids_by_host(hostids: [zbx.hosts.get_id(host: "router-01")])
 ```

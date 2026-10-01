@@ -1,13 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
-  class Configurations < Basic
-    # 标记配置接口使用数组形式处理 API 返回值。
-    # @return [Boolean] 始终返回 true
-    def array_flag
-      true
-    end
-
+  class Configurations < Resource
     # 返回配置对象对应的 Zabbix API 方法前缀。
     #
     # @return [String]

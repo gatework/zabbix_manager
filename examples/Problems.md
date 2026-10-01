@@ -6,8 +6,8 @@ For more information and available properties please refer to the Zabbix API doc
 [https://www.zabbix.com/documentation/5.2/manual/api/reference/problem](https://www.zabbix.com/documentation/5.2/manual/api/reference/problem)
 
 ## Get Problems
-Problem Zabbix API object does not have unique identifier, but search can be
-filtered by `name`, and/or one of the following:
+Problems are identified by `eventid`. Queries may also be filtered by name or
+the following API parameters:
 - `eventids`: Return only problems with the given IDs.
 - `groupids`: Return only problems created by objects that belong to the given
   host groups.
@@ -30,19 +30,19 @@ See Zabbix API documentation for more details.
 
 ```ruby
 # selecting by name (which is not unique)
-zbx.problems.dump_by_id(
+zbx.problems.get_full_data(
   name: "Zabbix agent is not available (for 3m)"
 )
 
 # selecting by source eventids
-zbx.problems.get(eventids: "86")
+zbx.problems.get_full_data(eventids: "86")
 
 # selecting by source objectids
-zbx.problems.get(objectids: "17884")
+zbx.problems.get_full_data(objectids: "17884")
 
 # selecting by timestamp
-zbx.problems.get(time_from: 1611928989)
-zbx.problems.get(time_till: 1611928989)
+zbx.problems.get_full_data(time_from: 1611928989)
+zbx.problems.get_full_data(time_till: 1611928989)
 ```
 
 ## Get all Problems

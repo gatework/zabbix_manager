@@ -1,41 +1,24 @@
 # Items
 
-This example assumes you have already initialized and connected the ZabbixManager.
+Use a host and stable item key for idempotent updates. These examples assume an
+initialized manager named `zbx` and an existing host interface.
 
-For more information and available properties please refer to the Zabbix API documentation for Items:
-[https://www.zabbix.com/documentation/4.0/manual/api/reference/item](https://www.zabbix.com/documentation/4.0/manual/api/reference/item)
-
-## Create Item
 ```ruby
-zbx.items.create(
-  :name => "item",
-  :description => "item",
-  :key_ => "proc.num[aaa]",
-  :type => 6,
-  :value_type => 6,
-  :hostid => zbx.templates.get_id(:host => "template"),
-  :applications => [zbx.applications.get_id(:name => "application")]
-)
-
-# or use (lib merge json):
-zbx.items.create_or_update(
-  :name => "item",
-  :description => "item",
-  :key_ => "proc.num[aaa]",
-  :type => 6,
-  :value_type => 4,
-  :hostid => zbx.templates.get_id(:host => "template"),
-  :applications => [zbx.applications.get_id(:name => "application")]
+hostid = zbx.hosts.get_id(host: "router-01")
+itemid = zbx.items.upsert_by_key(
+  hostid: hostid,
+  interfaceid: 12,
+  name: "System uptime",
+  key_: "system.uptime",
+  type: 0,
+  value_type: 3
 )
 ```
 
-## Update Item
-```ruby
-zbx.items.update(
-  :itemid => zbx.items.get_id(:name => "item"),
-  :status => 0
-)
+Batch methods verify the IDs belong to the selected host before changing them.
 
-#You can check Item:
-puts zbx.items.get_full_data(:name => "item")
+```ruby
+zbx.items.set_status(hostid: hostid, itemids: [itemid], enabled: true)
+zbx.items.find_by_key(hostid: hostid, key: "system.uptime")
+zbx.items.delete_many(hostid: hostid, itemids: [itemid])
 ```

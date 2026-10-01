@@ -27,7 +27,6 @@ describe "ZabbixManager::Graphs" do
     let(:method_name) { "testmethod" }
 
     before do
-      allow(graphs_mock).to receive(:log)
       allow(graphs_mock).to receive(:identify).and_return(identify)
       allow(graphs_mock).to receive(:method_name).and_return(method_name)
       allow(client).to receive(:api_request).with(
@@ -39,11 +38,6 @@ describe "ZabbixManager::Graphs" do
           output: "extend"
         }
       ).and_return(result)
-    end
-
-    it "logs debug message" do
-      expect(graphs_mock).to receive(:log).with("[DEBUG] Call get_full_data with parameters: #{data.inspect}")
-      subject
     end
 
     it { is_expected.to eq result }
@@ -64,7 +58,6 @@ describe "ZabbixManager::Graphs" do
     let(:method_name) { "testmethod" }
 
     before do
-      allow(graphs_mock).to receive(:log)
       allow(client).to receive(:api_request).with(
         method: "graph.get",
         params: {
@@ -125,20 +118,14 @@ describe "ZabbixManager::Graphs" do
   describe ".get_or_create" do
     subject { graphs_mock.get_or_create(data) }
 
-    let(:data) { { name: "batman", templateid: 1234 } }
+    let(:data) { { name: "batman", hostid: 1234 } }
     let(:result) { [{ "testkey" => "111", "testid" => 1 }] }
     let(:id) { nil }
     let(:id_through_create) { 222 }
 
     before do
-      allow(graphs_mock).to receive(:log)
-      allow(graphs_mock).to receive(:get_id).with(name: data[:name], templateid: data[:templateid]).and_return(id)
+      allow(graphs_mock).to receive(:get_id).with(name: data[:name], hostid: data[:hostid]).and_return(id)
       allow(graphs_mock).to receive(:create).with(data).and_return(id_through_create)
-    end
-
-    it "logs the debug message" do
-      expect(graphs_mock).to receive(:log).with("[DEBUG] Call get_or_create with parameters: #{data.inspect}")
-      subject
     end
 
     context "when ID already exist" do
@@ -159,19 +146,18 @@ describe "ZabbixManager::Graphs" do
   describe ".create_or_update" do
     subject { graphs_mock.create_or_update(data) }
 
-    let(:data) { { name: "batman", templateid: 1234 } }
+    let(:data) { { name: "batman", hostid: 1234 } }
     let(:result) { [{ "testkey" => "111", "testid" => 1 }] }
     let(:key) { "testkey" }
     let(:identify) { "testid" }
     let(:id) { nil }
     let(:id_through_create) { 222 }
-    let(:update_data) { { name: "batman", templateid: 1234, graphid: id } }
+    let(:update_data) { { name: "batman", hostid: 1234, graphid: id } }
 
     before do
-      allow(graphs_mock).to receive(:log)
       allow(graphs_mock).to receive(:identify).and_return(identify)
       allow(graphs_mock).to receive(:get_id)
-        .with(name: data[:name], templateid: data[:templateid]).and_return(id)
+        .with(name: data[:name], hostid: data[:hostid]).and_return(id)
       allow(graphs_mock).to receive(:create).with(data).and_return(id_through_create)
       allow(graphs_mock).to receive(:update).with(update_data).and_return(id)
     end
@@ -189,5 +175,20 @@ describe "ZabbixManager::Graphs" do
         expect(subject).to eq id_through_create
       end
     end
+  end
+end
+
+RSpec.describe "Graph owner identity" do
+  it "looks up by owner hostid and does not send query-only fields to graph.create" do
+    client = instance_double(ZabbixManager::Client)
+    attributes = { name: "CPU", hostid: 1, width: 900, height: 200, gitems: [{ itemid: 2, color: "00AA00" }] }
+    expect(client).to receive(:api_request).with(
+      method: "graph.get", params: { filter: { name: "CPU", hostid: 1 }, output: %w[graphid name] }
+    ).and_return([])
+    expect(client).to receive(:api_request).with(
+      method: "graph.create", params: [attributes.except(:hostid)]
+    ).and_return("graphids" => ["10"])
+
+    expect(ZabbixManager::Graphs.new(client).create_or_update(attributes)).to eq(10)
   end
 end

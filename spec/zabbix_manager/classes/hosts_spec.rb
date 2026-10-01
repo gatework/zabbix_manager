@@ -3,7 +3,7 @@
 require "spec_helper"
 
 RSpec.describe ZabbixManager::Hosts do
-  let(:client) { instance_double(ZabbixManager::Client, options: { debug: false }) }
+  let(:client) { instance_double(ZabbixManager::Client, options: {}) }
   let(:hosts) { described_class.new(client) }
 
   before { allow(client).to receive(:with_upsert_lock).and_yield }
@@ -107,5 +107,30 @@ RSpec.describe ZabbixManager::Hosts do
     expect do
       hosts.find_by_candidates(["router-01", "192.0.2.10"])
     end.to raise_error(ZabbixManager::Conflict, /multiple hosts/)
+  end
+end
+
+RSpec.describe "Host reconciliation preflight" do
+  it "rejects invalid new interfaces before changing existing host metadata" do
+    client = instance_double(ZabbixManager::Client)
+    allow(client).to receive(:with_upsert_lock).and_yield
+    writes = []
+    allow(client).to receive(:api_request) do |method:, params:|
+      case method
+      when "host.get"
+        [{ "hostid" => "1", "host" => "router-01" }]
+      when "hostinterface.get"
+        []
+      else
+        writes << { method: method, params: params }
+        { "hostids" => ["1"] }
+      end
+    end
+
+    interface = { type: 2, main: 1, useip: 1, ip: "192.0.2.1", port: "161", details: { version: 2 } }
+    expect do
+      ZabbixManager::Hosts.new(client).reconcile(host: "router-01", name: "New name", interfaces: [interface])
+    end.to raise_error(ZabbixManager::Invalid, /community/)
+    expect(writes).to be_empty
   end
 end

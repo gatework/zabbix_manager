@@ -8,21 +8,21 @@ For more information and available properties please refer to the Zabbix API doc
 ## Create Trigger
 ```ruby
 zbx.triggers.create(
-  :description => "trigger",
-  :expression => "{template:proc.num[aaa].last(0)}<1",
-  :comments => "Bla-bla is faulty (disaster)",
-  :priority => 5,
-  :status     => 0,
-  :hostid => zbx.templates.get_id(:host => "template"),
-  :type => 0,
-  :tags => [
+  description: "trigger",
+  expression: "{template:proc.num[aaa].last(0)}<1",
+  comments: "Bla-bla is faulty (disaster)",
+  priority: 5,
+  status: 0,
+  hostid: zbx.templates.get_id(host: "template"),
+  type: 0,
+  tags: [
     {
-      :tag => "process",
-      :value => "aaa"
+      tag: "process",
+      value: "aaa"
     },
     {
-      :tag => "error",
-      :value => ""
+      tag: "error",
+      value: ""
     }
   ]
 )
@@ -31,13 +31,13 @@ zbx.triggers.create(
 ## Get Trigger with certain filter
 ```ruby
 triggers = zbx.query(
-  :method => "trigger.get",
-  :params => {
-    :filter => {
-      :url => ""
+  method: "trigger.get",
+  params: {
+    filter: {
+      url: ""
     },
-    :templated => true,
-    :output => "extend"
+    templated: true,
+    output: "extend"
   }
 )
 ```

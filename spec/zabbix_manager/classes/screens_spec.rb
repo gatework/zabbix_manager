@@ -18,37 +18,6 @@ describe "ZabbixManager::Screens" do
     it { is_expected.to eq "name" }
   end
 
-  describe ".delete" do
-    subject { screens_mock.delete(data) }
-
-    let(:data) { { testidentify: 222 } }
-    let(:result) { { "screenids" => ["1"] } }
-    let(:identify) { "testidentify" }
-    let(:method_name) { "testmethod" }
-
-    before do
-      allow(screens_mock).to receive(:log)
-      allow(screens_mock).to receive(:identify).and_return(identify)
-      allow(screens_mock).to receive(:method_name).and_return(method_name)
-      allow(client).to receive(:api_request).with(
-        method: "screen.delete",
-        params: [data]
-      ).and_return(result)
-    end
-
-    context "when result is not empty" do
-      it "returns the id of first screen" do
-        expect(subject).to eq 1
-      end
-    end
-
-    context "when result is empty" do
-      let(:result) { [] }
-
-      it { is_expected.to be_nil }
-    end
-  end
-
   describe ".get_or_create_for_host" do
     subject { screens_mock.get_or_create_for_host(data) }
 

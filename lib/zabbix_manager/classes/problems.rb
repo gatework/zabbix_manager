@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
-  class Problems < Basic
+  class Problems < Resource
     # 返回问题对象对应的 Zabbix API 方法前缀。
     #
     # @return [String]
@@ -9,45 +9,18 @@ class ZabbixManager
       "problem"
     end
 
-    # 返回问题对象用于业务识别的字段名。
-    #
-    # @return [String]
-    def identify
-      "name"
-    end
-
-    # 返回问题对象的兼容 ID 字段名；问题对象本身没有独立的唯一标识。
+    # 使用触发问题的事件 ID 作为对象身份。
     #
     # @return [String]
     def key
-      "problemid"
+      "eventid"
     end
 
-    # 返回问题对象的复数兼容 ID 字段名。
+    # 返回事件 ID 集合字段名。
     #
     # @return [String]
     def keys
-      "problemids"
-    end
-
-    # 按识别字段查询问题对象的完整数据。
-    #
-    # @param data [Hash] 包含问题识别字段及其值的查询条件
-    # @raise [ApiError] Zabbix API 返回业务错误时抛出
-    # @raise [TransportError] Zabbix 服务端返回非成功 HTTP 状态时抛出
-    # @return [Hash] 匹配的问题数据
-    def dump_by_id(data)
-      log "[DEBUG] Call dump_by_id with parameters: #{data.inspect}"
-
-      @client.api_request(
-        method: "problem.get",
-        params: {
-          filter: {
-            identify.to_sym => data[identify.to_sym]
-          },
-          output: "extend"
-        }
-      )
+      "eventids"
     end
 
     # 获取问题及其确认、标签和抑制信息，并支持附加查询参数。
@@ -57,8 +30,6 @@ class ZabbixManager
     # @raise [TransportError] Zabbix 服务端返回非成功 HTTP 状态时抛出
     # @return [Hash] 匹配的问题完整数据
     def get_full_data(data)
-      log "[DEBUG] Call get_full_data with parameters: #{data.inspect}"
-
       data = data.deep_symbolize_keys
       params = {
         recent: false,
@@ -92,15 +63,14 @@ class ZabbixManager
     # @param message [String, nil] 可选确认消息
     # @return [Hash] 事件确认结果
     def acknowledge_events(eventids, action: 2, message: nil)
-      ids = Array(eventids).map(&:to_s).reject(&:blank?).uniq
-      raise Invalid, "eventids are required" if ids.empty?
+      ids = normalized_ids(eventids)
 
-      @client.api_request(
+      result = @client.api_request(
         method: "event.acknowledge",
         params: { eventids: ids, action: action, message: message }.compact
       )
+      response_ids(result, expected: ids)
+      result
     end
-
-    alias ack_event acknowledge_events
   end
 end

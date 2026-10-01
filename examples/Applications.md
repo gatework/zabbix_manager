@@ -8,7 +8,7 @@ For more information and available properties please refer to the Zabbix API doc
 ## Create Application
 ```ruby
 zbx.applications.create(
-  :name => application,
-  :hostid => zbx.templates.get_id(:host => "template")
+  name: application,
+  hostid: zbx.templates.get_id(host: "template")
 )
 ```

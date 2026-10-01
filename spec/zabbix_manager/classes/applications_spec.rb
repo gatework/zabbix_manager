@@ -29,15 +29,9 @@ describe "ZabbixManager::Applications" do
     let(:id_through_create) { 222 }
 
     before do
-      allow(actions_mock).to receive(:log)
       allow(actions_mock).to receive(:identify).and_return(identify)
       allow(actions_mock).to receive(:get_id).with(name: data[:name], hostid: data[:hostid]).and_return(id)
       allow(actions_mock).to receive(:create).with(data).and_return(id_through_create)
-    end
-
-    it "logs the debug message" do
-      expect(actions_mock).to receive(:log).with("[DEBUG] Call get_or_create with parameters: #{data.inspect}")
-      subject
     end
 
     context "when ID already exist" do
@@ -67,7 +61,6 @@ describe "ZabbixManager::Applications" do
     let(:update_data) { { name: "batman", hostid: 1234, applicationid: id } }
 
     before do
-      allow(actions_mock).to receive(:log)
       allow(actions_mock).to receive(:identify).and_return(identify)
       allow(actions_mock).to receive(:get_id)
         .with(name: data[:name], hostid: data[:hostid]).and_return(id)

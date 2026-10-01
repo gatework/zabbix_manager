@@ -1,107 +1,72 @@
-Examples Index
-====================
+# Examples
 
-- [Quick Start](README.md#quick-start)
-    - [Connect](README.md#connect)
-    - [Create Host](README.md#create-host)
-    - [Custom Queries](README.md#custom-queries)
-- Supported Zabbix Objects
-    - [Actions](Actions.md)
-    - [Applications](Applications.md)
-    - [Configurations](Configurations.md)
-    - [Graphs](Graphs.md)
-    - [Hostgroups](Hostgroups.md)
-    - [Hosts](Hosts.md)
-    - [Httptests](Httptests.md)
-    - [Items](Items.md)
-    - [Maintenance](Maintenance.md)
-    - [MediaTypes](MediaTypes.md)
-    - [Problems](Problems.md)
-    - [Proxies](Proxies.md)
-    - [Screens](Screens.md)
-    - [Templates](Templates.md)
-    - [Triggers](Triggers.md)
-    - [Usergroups](Usergroups.md)
-    - [Usermacros](Usermacros.md)
-    - [Users](Users.md)
-
-# Quick Start
+Ruby 3.4 or later is required. Resource fields and methods depend on the Zabbix
+server version; use its matching API reference. Applications and screens are
+legacy server resources, not substitutes for modern tags and dashboards.
 
 ## Connect
 
-### Standard
+Use an API token or explicit username/password credentials. Environment values
+are read by the manager only for the documented connection settings.
+
 ```ruby
 require "zabbix_manager"
 
-zbx = ZabbixManager.connect(
-  :url => 'http://localhost/zabbix/api_jsonrpc.php',
-  :user => 'Admin',
-  :password => 'zabbix'
+zbx = ZabbixManager.new(
+  url: "https://zabbix.example.test/api_jsonrpc.php",
+  api_token: ENV.fetch("ZABBIX_API_TOKEN"),
+  log_level: :info
 )
 ```
 
-### Ignore Zabbix API version
 ```ruby
-require "zabbix_manager"
-
-zbx = ZabbixManager.connect(
-  :url => 'http://localhost/zabbix/api_jsonrpc.php',
-  :user => 'Admin',
-  :password => 'zabbix',
-  :ignore_version => true
+zbx = ZabbixManager.new(
+  url: "https://zabbix.example.test/api_jsonrpc.php",
+  username: "operator",
+  password: ENV.fetch("ZABBIX_PASSWORD")
 )
 ```
 
-### Basic Auth
+Close the transport when finished. `logout` also invalidates a username/password
+session; API tokens remain managed by Zabbix.
+
 ```ruby
-require "zabbix_manager"
-
-zbx = ZabbixManager.connect(
-  :url => 'http://localhost/zabbix/api_jsonrpc.php',
-  :user => 'Admin',
-  :password => 'zabbix',
-  :http_password => 'foo',
-  :http_user => 'bar'
-)
+begin
+  zbx.host_groups.all
+ensure
+  zbx.close
+end
 ```
 
-## Logout
-```ruby
-require "zabbix_manager"
+## Business workflows
 
-zbx = ZabbixManager.connect(
-  :url => 'http://localhost/zabbix/api_jsonrpc.php',
-  :user => 'Admin',
-  :password => 'zabbix'
-)
+These workflows use native Zabbix APIs only, without SQL or application models.
+They share the same connection and return ordinary Ruby hashes.
 
-# Do stuff
+- [Device monitoring](device_monitoring.md): named groups/templates, SNMP secret macros, proxy routing, ownership and batches.
+- [Line monitoring](line_monitoring.md): preview, high/low traffic, interface status, ICMP, dependencies and retirement.
+- [Traffic queries](traffic.md): history/trends, direction discovery, numeric precision and explicit missing/truncated data.
 
-zbx.logout
-```
+## Resource examples
 
-## Create Host
-```ruby
-zbx.hosts.create(
-  :host => host.fqdn,
-  :interfaces => [
-    {
-      :type => 1,
-      :main => 1,
-      :ip => '192.0.2.10',
-      :dns => 'server.example.org',
-      :port => 10050,
-      :useip => 0
-    }
-  ],
-  :groups => [ :groupid => zbx.hostgroups.get_id(:name => "hostgroup") ]
-)
-```
-
-## Custom Queries
-```ruby
-zbx.query(
-  :method => "apiinfo.version",
-  :params => {}
-)
-```
+- [Actions](Actions.md)
+- [Applications](Applications.md)
+- [Configurations](Configurations.md)
+- [Discovery rules](discovery_rules.md)
+- [Graphs](Graphs.md)
+- [Host groups](host_groups.md)
+- [Hosts](Hosts.md)
+- [Web scenarios](http_tests.md)
+- [Items](Items.md)
+- [Maintenance](Maintenance.md)
+- [Media types](media_types.md)
+- [Problems](Problems.md)
+- [Proxies](Proxies.md)
+- [Screens](Screens.md)
+- [Templates](Templates.md)
+- [Triggers](Triggers.md)
+- [User groups](user_groups.md)
+- [User macros](user_macros.md)
+- [Users](Users.md)
+- [Value maps](value_maps.md)
+- [Queries and filters](queries_with_filters.md)

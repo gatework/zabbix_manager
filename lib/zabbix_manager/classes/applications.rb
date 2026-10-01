@@ -1,19 +1,12 @@
 # frozen_string_literal: true
 
 class ZabbixManager
-  class Applications < Basic
+  class Applications < Resource
     # 返回应用集对象对应的 Zabbix API 方法前缀。
     #
     # @return [String]
     def method_name
       "application"
-    end
-
-    # 返回应用集对象用于业务识别的字段名。
-    #
-    # @return [String]
-    def identify
-      "name"
     end
 
     # 生成由应用集名称和所属主机构成的稳定查询条件。

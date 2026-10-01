@@ -2,9 +2,13 @@
 
 source "https://rubygems.org"
 
-# Specify your gem's dependencies in zabbix_manager.gemspec
 gemspec
 
-gem "rake", "~> 13.0"
-
-gem "rubocop", "~> 1.7"
+gem "irb"
+gem "rake"
+gem "rspec"
+gem "rubocop"
+gem "rubocop-performance"
+gem "rubocop-packaging"
+gem "yard"
+gem "yardstick"

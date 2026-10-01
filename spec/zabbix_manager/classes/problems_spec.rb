@@ -18,17 +18,15 @@ describe "ZabbixManager::Problems" do
     it { is_expected.to eq "name" }
   end
 
-  # Problem object does not have a unique identifier
   describe ".key" do
     subject { problems_mock.key }
 
-    it { is_expected.to eq "problemid" }
+    it { is_expected.to eq "eventid" }
   end
 
-  # Problem object does not have a unique identifier
   describe ".keys" do
     subject { problems_mock.keys }
 
-    it { is_expected.to eq "problemids" }
+    it { is_expected.to eq "eventids" }
   end
 end

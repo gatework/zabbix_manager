@@ -6,12 +6,6 @@ describe "ZabbixManager::Configurations" do
   let(:configurations_mock) { ZabbixManager::Configurations.new(client) }
   let(:client) { double }
 
-  describe ".array_flag" do
-    subject { configurations_mock.array_flag }
-
-    it { is_expected.to be_truthy }
-  end
-
   describe ".method_name" do
     subject { configurations_mock.method_name }
 

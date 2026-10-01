@@ -1,19 +1,12 @@
 # frozen_string_literal: true
 
 class ZabbixManager
-  class Scripts < Basic
+  class Scripts < Resource
     # 返回 Zabbix API 中脚本对象的方法名前缀。
     #
     # @return [String] 脚本对象的方法名前缀
     def method_name
       "script"
-    end
-
-    # 返回用于唯一识别脚本的业务字段名。
-    #
-    # @return [String] 脚本对象的业务标识字段名
-    def identify
-      "name"
     end
 
     # 在指定主机上执行 Zabbix 脚本。

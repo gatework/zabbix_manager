@@ -4,7 +4,7 @@ require "spec_helper"
 
 RSpec.describe ZabbixManager::Triggers do
   let(:client) do
-    instance_double(ZabbixManager::Client, options: { debug: false, uncertain_write_delays: [0] })
+    instance_double(ZabbixManager::Client, options: { uncertain_write_delays: [0] })
   end
   let(:triggers) { described_class.new(client) }
 
@@ -55,7 +55,9 @@ RSpec.describe ZabbixManager::Triggers do
       params: {
         hostids: 101,
         tags: [{ tag: "zabbix_manager_id", value: "interface:line-1:bandwidth", operator: 1 }],
-        output: ["triggerid", "description"],
+        output: "extend",
+        expandExpression: true,
+        selectDependencies: ["triggerid"],
         selectTags: "extend"
       }
     ).and_return([
@@ -127,6 +129,7 @@ RSpec.describe ZabbixManager::Triggers do
     ).and_return("triggerids" => ["9"])
 
     expect(triggers.replace_dependencies(hostid: 101, triggerid: 9, depends_on: [7, 8])).to eq(9)
+    expect(client).to have_received(:with_upsert_lock).with("trigger-dependencies:9")
   end
 
   it "拒绝触发器依赖自身" do
@@ -163,11 +166,16 @@ RSpec.describe ZabbixManager::Triggers do
     lookup = {
       hostids: 101,
       tags: [{ tag: "zabbix_manager_id", value: "interface:line-1:bandwidth", operator: 1 }],
-      output: ["triggerid", "description"],
+      output: "extend",
+      expandExpression: true,
+      selectDependencies: ["triggerid"],
       selectTags: "extend"
     }
     allow(client).to receive(:api_request).with(method: "trigger.get", params: lookup)
-                                          .and_return([], [{ "triggerid" => "44" }])
+                                          .and_return([], [{ "triggerid" => "44", "description" => "WAN high",
+                                                             "expression" => "last(/router/key)>1",
+                                                             "tags" => [{ "tag" => "zabbix_manager_id",
+                                                                          "value" => "interface:line-1:bandwidth" }] }])
     allow(client).to receive(:api_request).with(method: "trigger.create", params: anything)
                                           .and_raise(ZabbixManager::TransportError, "response lost")
 

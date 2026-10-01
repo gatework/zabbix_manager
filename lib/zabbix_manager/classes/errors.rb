@@ -22,6 +22,9 @@ class ZabbixManager
   # 表示 HTTP 状态或传输层失败。
   class TransportError < StandardError; end
 
+  # A response cannot confirm whether the remote operation completed.
+  class ProtocolError < TransportError; end
+
   # 表示远端可能已完成写入，调用方不得自动重放。
   class ResultUnknown < TransportError; end
 end

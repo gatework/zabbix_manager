@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
-  class Proxies < Basic
+  class Proxies < Resource
     # 返回 Zabbix API 中代理对象的方法名前缀。
     #
     # @return [String] 代理对象的方法名前缀
@@ -13,18 +13,7 @@ class ZabbixManager
     #
     # @return [String] 代理对象的标识字段名
     def identify
-      "host"
-    end
-
-    # 通过 Zabbix API 删除指定代理，并返回首个已删除代理的 ID。
-    #
-    # @param data [Array] 要删除的 proxyid 数组
-    # @raise [ApiError] Zabbix API 返回业务错误时抛出
-    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
-    # @return [Integer, nil] 已删除代理的 ID，无结果时返回 nil
-    def delete(data)
-      result = @client.api_request(method: "proxy.delete", params: data)
-      result.empty? ? nil : result["proxyids"][0].to_i
+      Gem::Version.new(@client.api_version) >= Gem::Version.new("7.0") ? "name" : "host"
     end
 
     # 检查当前凭证是否可读取指定代理。
@@ -58,9 +47,9 @@ class ZabbixManager
       result = @client.api_request(
         method: "proxy.get",
         params: {
-          output: %w[proxyid host],
+          output: ["proxyid", identify],
           filter: {
-            host: proxy
+            identify.to_sym => proxy
           }
         }
       )

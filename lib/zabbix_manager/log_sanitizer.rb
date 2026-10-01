@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "uri"
+require "active_support/parameter_filter"
 
 class ZabbixManager
   module LogSanitizer
@@ -9,24 +10,16 @@ class ZabbixManager
     SENSITIVE_KEY_NAMES = "auth|authorization|api_token|community|cookie|http_password|password|passwd|" \
                           "privatekey|secret|sessionid|snmp_community|snmpv3_authpassphrase|" \
                           "snmpv3_privpassphrase|tls_psk|tls_psk_identity|token"
-    SENSITIVE_KEYS = /\A(?:#{SENSITIVE_KEY_NAMES})\z/i.freeze
+    SENSITIVE_KEYS = /\A(?:#{SENSITIVE_KEY_NAMES})\z/i
+    FILTER = ActiveSupport::ParameterFilter.new(
+      [SENSITIVE_KEYS, ->(_key, value) { value.replace(sanitize_string(value)) if value.is_a?(String) }]
+    ).freeze
 
     module_function
 
     # 递归脱敏结构化对象，并限制字符串长度。
     def sanitize(value)
-      case value
-      when Hash
-        value.each_with_object({}) do |(key, child), result|
-          result[key] = sensitive_key?(key) ? REDACTED : sanitize(child)
-        end
-      when Array
-        value.map { |child| sanitize(child) }
-      when String
-        sanitize_string(value)
-      else
-        value
-      end
+      FILTER.filter_param("value", value)
     end
 
     # 移除 URL 中的用户名、密码、查询串和片段。
@@ -38,7 +31,7 @@ class ZabbixManager
       uri.fragment = nil
       uri.to_s
     rescue URI::InvalidURIError
-      sanitize_string(value.to_s)
+      REDACTED
     end
 
     # 清理字符串中的认证头和常见敏感键值。
@@ -58,11 +51,6 @@ class ZabbixManager
         "\\1#{REDACTED}"
       )
       sanitized.length > MAX_STRING_LENGTH ? "#{sanitized[0, MAX_STRING_LENGTH]}...[TRUNCATED]" : sanitized
-    end
-
-    # 判断字段名是否属于敏感配置。
-    def sensitive_key?(key)
-      key.to_s.match?(SENSITIVE_KEYS)
     end
   end
 end

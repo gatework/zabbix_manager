@@ -6,30 +6,30 @@ require "active_support/core_ext/hash/deep_transform_values"
 require "active_support/core_ext/enumerable"
 require "active_support/core_ext/array/wrap"
 require "active_support/core_ext/object/blank"
+require "active_support/core_ext/object/deep_dup"
 require "zabbix_manager/version"
 require "zabbix_manager/classes/errors"
 require "zabbix_manager/log_sanitizer"
 require "zabbix_manager/http_transport"
+require "zabbix_manager/configuration"
 require "zabbix_manager/client"
 
-require "zabbix_manager/basic/basic_alias"
-require "zabbix_manager/basic/basic_func"
-require "zabbix_manager/basic/basic_init"
-require "zabbix_manager/basic/basic_logic"
+require "zabbix_manager/resource"
 
 require "zabbix_manager/classes/actions"
 require "zabbix_manager/classes/applications"
 require "zabbix_manager/classes/configurations"
 require "zabbix_manager/classes/events"
 require "zabbix_manager/classes/graphs"
-require "zabbix_manager/classes/hostgroups"
-require "zabbix_manager/classes/hostinterfaces"
+require "zabbix_manager/classes/host_groups"
+require "zabbix_manager/classes/host_interfaces"
 require "zabbix_manager/classes/hosts"
-require "zabbix_manager/classes/httptests"
+require "zabbix_manager/classes/http_tests"
 require "zabbix_manager/classes/items"
 require "zabbix_manager/classes/maintenance"
-require "zabbix_manager/classes/mediatypes"
+require "zabbix_manager/classes/media_types"
 require "zabbix_manager/classes/proxies"
+require "zabbix_manager/classes/proxy_groups"
 require "zabbix_manager/classes/problems"
 require "zabbix_manager/classes/roles"
 require "zabbix_manager/classes/screens"
@@ -37,37 +37,45 @@ require "zabbix_manager/classes/scripts"
 require "zabbix_manager/classes/server"
 require "zabbix_manager/classes/templates"
 require "zabbix_manager/classes/triggers"
-require "zabbix_manager/classes/usergroups"
-require "zabbix_manager/classes/usermacros"
+require "zabbix_manager/classes/user_groups"
+require "zabbix_manager/classes/user_macros"
 require "zabbix_manager/classes/users"
-require "zabbix_manager/classes/valuemaps"
-require "zabbix_manager/classes/drules"
+require "zabbix_manager/classes/value_maps"
+require "zabbix_manager/classes/discovery_rules"
 require "zabbix_manager/monitoring"
+require "zabbix_manager/traffic"
 
 class ZabbixManager
   # @return [ZabbixManager::Client]
   attr_reader :client
 
-  # 使用页面或服务配置创建管理器实例。
+  # 使用显式配置创建管理器，并立即查询 API 版本、完成认证。
   #
   # @param options [Hash]
   # @return [ZabbixManager]
-  def self.connect(options = {})
-    new(options)
+  # @raise [Invalid, ApiError, TransportError] 配置、认证或连接失败
+  def self.connect(**options)
+    new(**options)
   end
 
-  # 返回进程内默认管理器实例。
-  # @return [ZabbixManager]
-  def self.current
-    @current ||= ZabbixManager.new
+  # Build a manager using only the documented connection environment variables.
+  # Explicit options override the environment, including explicit nil values.
+  # @param env [#[]] a mapping containing the four documented ZABBIX_* variables
+  # @param options [Hash] explicit connection settings
+  # @return [ZabbixManager] an authenticated manager owned by the caller
+  def self.from_env(env: ENV, **options)
+    new(**Configuration.from_env(env, options))
   end
 
   # 直接执行调用方指定的 Zabbix API 方法。
   #
-  # @param data [Hash]
-  # @return [Hash]
-  def query(data)
-    @client.api_request(method: data[:method], params: data[:params])
+  # @param method [String]
+  # @param params [Hash, Array]
+  # @return [Object]
+  # @raise [ApiError] 服务端明确拒绝请求
+  # @raise [TransportError, ProtocolError] 未获得可确认结果；写请求不可盲目重试
+  def query(method:, params: {})
+    @client.api_request(method: method, params: params)
   end
 
   # 注销用户名会话并关闭连接。
@@ -77,6 +85,7 @@ class ZabbixManager
   end
 
   # 关闭持久 HTTP 连接但不改变远端凭据。
+  # @return [true] 下次请求可按需重新连接
   def close
     @client.close
   end
@@ -84,163 +93,37 @@ class ZabbixManager
   # 初始化管理器并创建唯一共享客户端。
   #
   # @param options [Hash]
-  # @return [ZabbixManager::Client]
-  def initialize(options = {})
-    @client = Client.new(options)
+  # @raise [Invalid, ApiError, TransportError] 配置、认证或连接失败
+  def initialize(**options)
+    @client = Client.new(**options)
+    @resources = {}
   end
 
-  # 返回动作模块并复用同一客户端。
-  # @return [ZabbixManager::Actions]
-  def actions
-    @actions ||= Actions.new(@client)
+  # Each resource shares this manager's authenticated client.
+  RESOURCES = {
+    actions: Actions, applications: Applications, configurations: Configurations,
+    events: Events, graphs: Graphs, host_groups: HostGroups, host_interfaces: HostInterfaces,
+    hosts: Hosts, http_tests: HttpTests, items: Items, maintenance: Maintenance,
+    media_types: MediaTypes, problems: Problems, proxies: Proxies, proxy_groups: ProxyGroups, roles: Roles,
+    screens: Screens, scripts: Scripts, server: Server, templates: Templates,
+    triggers: Triggers, user_groups: UserGroups, user_macros: UserMacros, users: Users,
+    value_maps: ValueMaps, discovery_rules: DiscoveryRules
+  }.freeze
+  private_constant :RESOURCES
+
+  RESOURCES.each do |name, resource_class|
+    define_method(name) { @resources[name] ||= resource_class.new(@client) }
   end
 
-  # 返回应用模块并复用同一客户端。
-  # @return [ZabbixManager::Applications]
-  def applications
-    @applications ||= Applications.new(@client)
-  end
-
-  # 返回配置导入导出模块并复用同一客户端。
-  # @return [ZabbixManager::Configurations]
-  def configurations
-    @configurations ||= Configurations.new(@client)
-  end
-
-  # 返回事件模块并复用同一客户端。
-  # @return [ZabbixManager::Events]
-  def events
-    @events ||= Events.new(@client)
-  end
-
-  # 返回图形模块并复用同一客户端。
-  # @return [ZabbixManager::Graphs]
-  def graphs
-    @graphs ||= Graphs.new(@client)
-  end
-
-  # 返回主机群组模块并复用同一客户端。
-  # @return [ZabbixManager::HostGroups]
-  def hostgroups
-    @hostgroups ||= HostGroups.new(@client)
-  end
-
-  # 返回主机接口 API 模块，并复用同一客户端会话。
-  # @return [ZabbixManager::HostInterfaces]
-  def hostinterfaces
-    @hostinterfaces ||= HostInterfaces.new(@client)
-  end
-
-  # 返回主机模块并复用同一客户端。
-  # @return [ZabbixManager::Hosts]
-  def hosts
-    @hosts ||= Hosts.new(@client)
-  end
-
-  # 返回 Web 场景模块并复用同一客户端。
-  # @return [ZabbixManager::HttpTests]
-  def httptests
-    @httptests ||= HttpTests.new(@client)
-  end
-
-  # 返回监控项模块并复用同一客户端。
-  # @return [ZabbixManager::Items]
-  def items
-    @items ||= Items.new(@client)
-  end
-
-  # 返回维护模块并复用同一客户端。
-  # @return [ZabbixManager::Maintenance]
-  def maintenance
-    @maintenance ||= Maintenance.new(@client)
-  end
-
-  # 返回媒介类型模块并复用同一客户端。
-  # @return [ZabbixManager::Mediatypes]
-  def mediatypes
-    @mediatypes ||= Mediatypes.new(@client)
-  end
-
-  # 返回问题模块并复用同一客户端。
-  # @return [ZabbixManager::Problems]
-  def problems
-    @problems ||= Problems.new(@client)
-  end
-
-  # 返回代理模块并复用同一客户端。
-  # @return [ZabbixManager::Proxies]
-  def proxies
-    @proxies ||= Proxies.new(@client)
-  end
-
-  # 返回角色模块并复用同一客户端。
-  # @return [ZabbixManager::Roles]
-  def roles
-    @roles ||= Roles.new(@client)
-  end
-
-  # 返回聚合图模块并复用同一客户端。
-  # @return [ZabbixManager::Screens]
-  def screens
-    @screens ||= Screens.new(@client)
-  end
-
-  # 返回脚本模块并复用同一客户端。
-  # @return [ZabbixManager::Scripts]
-  def scripts
-    @scripts ||= Scripts.new(@client)
-  end
-
-  # 返回服务端信息模块并复用同一客户端。
-  # @return [ZabbixManager::Server]
-  def server
-    @server ||= Server.new(@client)
-  end
-
-  # 返回模板模块并复用同一客户端。
-  # @return [ZabbixManager::Templates]
-  def templates
-    @templates ||= Templates.new(@client)
-  end
-
-  # 返回触发器模块并复用同一客户端。
-  # @return [ZabbixManager::Triggers]
-  def triggers
-    @triggers ||= Triggers.new(@client)
-  end
-
-  # 返回用户群组模块并复用同一客户端。
-  # @return [ZabbixManager::Usergroups]
-  def usergroups
-    @usergroups ||= Usergroups.new(@client)
-  end
-
-  # 返回用户宏模块并复用同一客户端。
-  # @return [ZabbixManager::Usermacros]
-  def usermacros
-    @usermacros ||= Usermacros.new(@client)
-  end
-
-  # 返回用户模块并复用同一客户端。
-  # @return [ZabbixManager::Users]
-  def users
-    @users ||= Users.new(@client)
-  end
-
-  # 返回值映射模块并复用同一客户端。
-  # @return [ZabbixManager::ValueMaps]
-  def valuemaps
-    @valuemaps ||= ValueMaps.new(@client)
-  end
-
-  # 返回网络发现规则模块并复用同一客户端。
-  # @return [ZabbixManager::Drules]
-  def drules
-    @drules ||= Drules.new(@client)
-  end
-
-  # 返回设备、接口和线路监控的幂等业务编排模块。
+  # 返回仅使用 Zabbix 原生 API 的设备、接口和线路监控编排入口。
+  # @return [ZabbixManager::Monitoring] 同一 manager 复用同一业务实例
   def monitoring
     @monitoring ||= Monitoring.new(self)
+  end
+
+  # 查询数值监控项的历史或趋势序列，不访问数据库、不补造缺失观测。
+  # @return [ZabbixManager::Traffic] 同一 manager 复用同一查询实例
+  def traffic
+    @traffic ||= Traffic.new(self)
   end
 end

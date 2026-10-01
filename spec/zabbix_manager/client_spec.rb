@@ -5,7 +5,7 @@ require "stringio"
 
 RSpec.describe ZabbixManager::Client do
   let(:transport) {
- instance_double(ZabbixManager::HttpTransport, close: true, safe_url: "https://zabbix.test/api_jsonrpc.php")
+    instance_double(ZabbixManager::HttpTransport, close: true, safe_url: "https://zabbix.test/api_jsonrpc.php")
   }
 
   before do
@@ -13,19 +13,19 @@ RSpec.describe ZabbixManager::Client do
     allow(transport).to receive(:uri).and_return(URI("https://zabbix.test/api_jsonrpc.php"))
   end
 
-  def response(result)
-    JSON.generate(jsonrpc: "2.0", result: result, id: 1)
+  def response(result, id: 1)
+    JSON.generate(jsonrpc: "2.0", result: result, id: id)
   end
 
   def build_client(version: "7.4.0", **options)
     allow(transport).to receive(:request).and_return(response(version))
-    described_class.new({ url: "https://zabbix.test/api_jsonrpc.php", api_token: "api-secret" }.merge(options))
+    described_class.new(**{ url: "https://zabbix.test/api_jsonrpc.php", api_token: "api-secret" }.merge(options))
   end
 
   describe "authentication strategy" do
     it "uses a Bearer header and omits auth from the JSON body for Zabbix 7" do
       client = build_client
-      allow(transport).to receive(:request).and_return(response([]))
+      allow(transport).to receive(:request).and_return(response([], id: 2))
 
       client.api_request(method: "host.get", params: { output: %w[hostid host] })
 
@@ -36,13 +36,15 @@ RSpec.describe ZabbixManager::Client do
 
     it "keeps auth in the JSON body for Zabbix 6" do
       client = build_client(version: "6.0.48")
-      payload = JSON.parse(client.message_json(method: "host.get", params: {}))
+      allow(transport).to receive(:request).and_return(response([], id: 2))
+      client.api_request(method: "host.get")
+      payload = JSON.parse(RSpec::Mocks.space.proxy_for(transport).messages_arg_list.last.first)
 
       expect(payload["auth"]).to eq("api-secret")
     end
 
     it "does not create a user session when api_token is supplied" do
-      expect_any_instance_of(described_class).not_to receive(:auth)
+      expect_any_instance_of(described_class).not_to receive(:login)
 
       build_client
     end
@@ -54,22 +56,22 @@ RSpec.describe ZabbixManager::Client do
         body[:method] == "apiinfo.version" ? "7.4.0" : "session-secret"
       end
 
-      described_class.new(url: "https://zabbix.test/api_jsonrpc.php", user: "Admin", password: "password")
+      described_class.new(url: "https://zabbix.test/api_jsonrpc.php", username: "Admin", password: "password")
 
       expect(calls).to include(method: "user.login", params: { username: "Admin", password: "password" })
     end
 
     it "rejects ambiguous or incomplete credentials" do
       expect do
-        described_class.new(url: "https://zabbix.test", api_token: "token", user: "Admin", password: "password")
+        described_class.new(url: "https://zabbix.test", api_token: "token", username: "Admin", password: "password")
       end.to raise_error(ArgumentError, /cannot be combined/)
 
-      expect { described_class.new(url: "https://zabbix.test", user: "Admin") }
+      expect { described_class.new(url: "https://zabbix.test", username: "Admin") }
         .to raise_error(ArgumentError, /provide api_token/)
     end
 
     it "treats blank page credential fields as absent" do
-      allow(transport).to receive(:request).and_return(response("7.4.0"), response("session-secret"))
+      allow(transport).to receive(:request).and_return(response("7.4.0"), response("session-secret", id: 2))
 
       client = described_class.new(
         url: "https://zabbix.test/api_jsonrpc.php", api_token: "", username: "Admin", password: "password"
@@ -100,12 +102,15 @@ RSpec.describe ZabbixManager::Client do
     end
 
     it "clears a user session locally even when remote logout fails" do
-      allow(transport).to receive(:request).and_return(response("6.0.48"), response("session-secret"))
-      client = described_class.new(url: "https://zabbix.test/api_jsonrpc.php", user: "Admin", password: "password")
+      allow(transport).to receive(:request).and_return(response("6.0.48"), response("session-secret", id: 2))
+      client = described_class.new(url: "https://zabbix.test/api_jsonrpc.php", username: "Admin", password: "password")
       allow(transport).to receive(:request).and_raise(Net::ReadTimeout)
 
       expect { client.logout }.to raise_error(Net::ReadTimeout)
-      expect(JSON.parse(client.message_json(method: "host.get", params: {}))).not_to have_key("auth")
+      allow(transport).to receive(:request).and_return(response([], id: 4))
+      client.api_request(method: "host.get")
+      payload = JSON.parse(RSpec::Mocks.space.proxy_for(transport).messages_arg_list.last.first)
+      expect(payload).not_to have_key("auth")
     end
   end
 
@@ -131,10 +136,7 @@ RSpec.describe ZabbixManager::Client do
       client = build_client(logger: logger, password: nil)
 
       expect(client.options[:api_token]).to eq(ZabbixManager::LogSanitizer::REDACTED)
-      expect(client.sanitized_options[:api_token]).to eq(ZabbixManager::LogSanitizer::REDACTED)
       expect(client.inspect).not_to include("api-secret")
-      formatted = client.pretty_body(JSON.generate(method: "x", params: { password: "secret", token: "secret" }))
-      expect(formatted).not_to include("secret")
 
       client.log(:debug, "custom", authorization: "Bearer secret", password: "secret")
       expect(output.string).not_to include("secret")
@@ -155,13 +157,11 @@ RSpec.describe ZabbixManager::Client do
       logger = Logger.new(output)
       logger.level = Logger::DEBUG
       client = build_client(logger: logger)
-      allow(transport).to receive(:request).and_return(response([]))
+      allow(transport).to receive(:request).and_return(response([], id: 2))
 
       client.api_request(method: "usermacro.create", params: { macro: "{$API_TOKEN}", value: "macro-secret" })
-      formatted = client.pretty_body(JSON.generate(method: "host.create", params: { tls_psk: "psk-secret" }))
 
       expect(output.string).not_to include("macro-secret")
-      expect(formatted).not_to include("psk-secret")
     end
 
     it "raises a stable error for invalid JSON-RPC responses" do
@@ -169,7 +169,7 @@ RSpec.describe ZabbixManager::Client do
       allow(transport).to receive(:request).and_return(JSON.generate(jsonrpc: "2.0", id: 2))
 
       expect { client.api_request(method: "host.get", params: {}) }
-        .to raise_error(ZabbixManager::ApiError, /missing result/)
+        .to raise_error(ZabbixManager::ProtocolError, /result or error/)
     end
 
     it "缺少 result 时只在异常中保留脱敏响应" do
@@ -179,9 +179,9 @@ RSpec.describe ZabbixManager::Client do
       )
 
       expect { client.api_request(method: "host.get", params: {}) }
-        .to raise_error(ZabbixManager::ApiError) { |error|
- expect(error.response.inspect).not_to include("response-secret")
-            }
+        .to raise_error(ZabbixManager::ProtocolError) { |error|
+          expect(error.full_message).not_to include("response-secret")
+        }
     end
 
     it "redacts sensitive request fields in API errors" do
@@ -213,7 +213,14 @@ RSpec.describe ZabbixManager::Client do
     it "generates monotonic IDs safely within the client" do
       client = build_client
 
-      expect([client.id, client.id, client.id]).to eq([2, 3, 4])
+      ids = []
+      allow(transport).to receive(:request) do |body, **|
+        id = JSON.parse(body).fetch("id")
+        ids << id
+        response([], id: id)
+      end
+      3.times { client.api_request(method: "host.get") }
+      expect(ids).to eq([2, 3, 4])
     end
   end
 
@@ -236,5 +243,111 @@ RSpec.describe ZabbixManager::Client do
       expect { build_client(uncertain_write_delays: [-1, 70]) }
         .to raise_error(ZabbixManager::Invalid, /uncertain_write_delays/)
     end
+  end
+  describe "protocol failures" do
+    it "rejects a response belonging to another request" do
+      client = build_client
+      allow(transport).to receive(:request).and_return(response([]))
+      expect { client.api_request(method: "host.get", params: {}) }
+        .to raise_error(ZabbixManager::TransportError, /response/)
+    end
+
+    it "does not expose malformed remote content through exception causes" do
+      client = build_client
+      allow(transport).to receive(:request).and_return('secret-from-remote')
+      expect { client.api_request(method: "host.create", params: {}) }
+        .to(raise_error { |error| expect(error.full_message).not_to include("secret-from-remote") })
+    end
+
+    [nil, [], true, "unexpected", 42].each do |value|
+      it "rejects non-object response #{value.inspect} as an uncertain transport result" do
+        client = build_client
+        allow(transport).to receive(:request).and_return(JSON.generate(value))
+        expect { client.api_request(method: "host.create", params: {}) }
+          .to raise_error(ZabbixManager::TransportError)
+      end
+    end
+
+    it "does not turn successful mutations into failures when logging is unavailable" do
+      logger = Logger.new(StringIO.new)
+      client = build_client(logger: logger)
+      allow(transport).to receive(:request).and_return(JSON.generate(jsonrpc: "2.0", result: true, id: 2))
+      allow(client.logger).to receive(:info).and_raise(IOError, "closed log")
+      expect(client.api_request(method: "host.create", params: {})).to be(true)
+    end
+  end
+end
+
+RSpec.describe "client configuration and protocol boundaries" do
+  let(:transport) do
+    instance_double(ZabbixManager::HttpTransport, close: true, uri: URI("https://zabbix.test"),
+                                                  safe_url: "https://zabbix.test")
+  end
+
+  before do
+    allow(ZabbixManager::HttpTransport).to receive(:new).and_return(transport)
+    allow(transport).to receive(:request) do |body, **|
+      request = JSON.parse(body)
+      JSON.generate(jsonrpc: "2.0", id: request.fetch("id"), result: "7.4.0")
+    end
+  end
+
+  def connect(**options)
+    ZabbixManager::Client.new(url: "https://zabbix.test", api_token: "credential", **options)
+  end
+
+  it "uses ActiveSupport logging without modifying the injected logger's level" do
+    source = Logger.new(StringIO.new, level: :warn)
+    client = connect(logger: source, log_level: :debug)
+    expect(client.logger).to respond_to(:tagged)
+    expect(client.logger.level).to eq(Logger::DEBUG)
+    expect(source.level).to eq(Logger::WARN)
+  end
+
+  it "builds an ActiveSupport logger only when requested" do
+    expect(connect.logger).to be_nil
+    expect(connect(log_level: :fatal).logger).to be_a(ActiveSupport::Logger)
+  end
+
+  it "rejects invalid request shape before sending" do
+    client = connect
+    expect(transport).not_to receive(:request)
+    [false, nil, 1, "arbitrary"].each do |params|
+      expect { client.api_request(method: "host.get", params: params) }.to raise_error(ZabbixManager::Invalid)
+    end
+    expect { client.api_request(method: "host.get\nsecret") }.to raise_error(ZabbixManager::Invalid)
+  end
+
+  it "accepts false and null results instead of treating them as missing" do
+    client = connect
+    [false, nil].each do |value|
+      allow(transport).to receive(:request) do |body, **|
+        JSON.generate(jsonrpc: "2.0", id: JSON.parse(body).fetch("id"), result: value)
+      end
+      expect(client.api_request(method: "host.get")).to eq(value)
+    end
+  end
+
+  it "rejects contradictory and malformed error responses" do
+    client = connect
+    [{ result: [], error: {} }, { error: false }, { error: [] },
+     { error: { code: "bad", message: "secret" } }].each do |data|
+      allow(transport).to receive(:request) do |body, **|
+        JSON.generate({ jsonrpc: "2.0", id: JSON.parse(body).fetch("id") }.merge(data))
+      end
+      expect { client.api_request(method: "host.create") }.to raise_error(ZabbixManager::ProtocolError)
+    end
+  end
+
+  it "excludes arbitrary remote text from API errors and stored diagnostic data" do
+    client = connect
+    allow(transport).to receive(:request) do |body, **|
+      JSON.generate(jsonrpc: "2.0", id: JSON.parse(body).fetch("id"),
+                    error: { code: -32602, message: "credential echoed here", data: "credential also here" })
+    end
+    expect { client.api_request(method: "host.create") }.to raise_error(ZabbixManager::ApiError) { |error|
+      expect(error.full_message).not_to include("credential")
+      expect(error.response).to eq("jsonrpc" => "2.0", "id" => 2, "error" => { "code" => -32602 })
+    }
   end
 end

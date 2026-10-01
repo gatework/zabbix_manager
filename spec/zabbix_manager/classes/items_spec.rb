@@ -42,14 +42,8 @@ describe "ZabbixManager::Items" do
     let(:id_through_create) { 222 }
 
     before do
-      allow(items_mock).to receive(:log)
       allow(items_mock).to receive(:get_id).with(name: data[:name], hostid: data[:hostid]).and_return(id)
       allow(items_mock).to receive(:create).with(data).and_return(id_through_create)
-    end
-
-    it "logs the debug message" do
-      expect(items_mock).to receive(:log).with("[DEBUG] Call get_or_create with parameters: #{data.inspect}")
-      subject
     end
 
     context "when ID already exist" do
@@ -79,7 +73,6 @@ describe "ZabbixManager::Items" do
     let(:update_data) { { name: data[:name], hostid: data[:hostid], itemid: itemid } }
 
     before do
-      allow(items_mock).to receive(:log)
       allow(items_mock).to receive(:identify).and_return(identify)
       allow(items_mock).to receive(:get_id)
         .with(name: data[:name], hostid: data[:hostid]).and_return(itemid)
@@ -121,7 +114,6 @@ describe "ZabbixManager::Items" do
     end
 
     it "通过主机接口幂等创建 DNS 解析监控项" do
-      allow(items_mock).to receive(:log)
       allow(client).to receive(:api_request).with(
         method: "item.get",
         params: {
@@ -148,7 +140,6 @@ describe "ZabbixManager::Items" do
     end
 
     it "拒绝能够改变 DNS item key 结构的名称" do
-      allow(items_mock).to receive(:log)
       expect(client).not_to receive(:api_request)
 
       expect do

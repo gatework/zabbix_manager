@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class ZabbixManager
-  class Screens < Basic
+  class Screens < Resource
     # 以下资源类型取自 frontends/php/include/defines.inc.php。
     # SCREEN_RESOURCE_GRAPH => 0,
     # SCREEN_RESOURCE_SIMPLE_GRAPH => 1,
@@ -26,24 +26,6 @@ class ZabbixManager
     # @return [String] 聚合图形对象的方法名前缀
     def method_name
       "screen"
-    end
-
-    # 返回用于唯一识别聚合图形的业务字段名。
-    #
-    # @return [String] 聚合图形的业务标识字段名
-    def identify
-      "name"
-    end
-
-    # 删除指定聚合图形并返回首个已删除对象的 ID。
-    #
-    # @param data [String, Array] 要删除的聚合图形 ID
-    # @raise [ApiError] Zabbix API 返回业务错误时抛出
-    # @raise [TransportError] Zabbix 服务返回非成功 HTTP 状态时抛出
-    # @return [Integer, nil] 已删除聚合图形的 ID，无结果时返回 nil
-    def delete(data)
-      result = @client.api_request(method: "screen.delete", params: [data])
-      result.empty? ? nil : result["screenids"][0].to_i
     end
 
     # 按名称获取聚合图形，不存在时按图形 ID 网格化创建。
@@ -97,17 +79,15 @@ class ZabbixManager
 
     private
 
-      # 将横向格数转换为正整数，非法值直接拒绝。
-      #
-      # @param value [Object] 待校验的横向格数
-      # @return [Integer] 正整数横向格数
-      def positive_hsize(value)
-        size = Integer(value)
-        raise Invalid unless size.positive?
+    # 将横向格数转换为正整数，非法值直接拒绝。
+    #
+    # @param value [Object] 待校验的横向格数
+    # @return [Integer] 正整数横向格数
+    def positive_hsize(value)
+      size = integer_attribute(value, "hsize")
+      raise Invalid, "hsize must be a positive integer" unless size.positive?
 
-        size
-      rescue ArgumentError, TypeError
-        raise Invalid, "hsize must be a positive integer"
-      end
+      size
+    end
   end
 end

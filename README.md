@@ -4,8 +4,7 @@
 
 [gem]: https://rubygems.org/gems/zabbix_manager
 
-Most codes borrowed from zabbixapi, but fit for my everyday works well!
-Simple and lightweight ruby module for working with [Zabbix][Zabbix] via the [Zabbix API][Zabbix API]
+A Ruby client for the [Zabbix API][Zabbix API], with reusable device, interface and circuit monitoring workflows.
 
 ## Installation
 ```sh
@@ -41,6 +40,25 @@ zabbix.close
 
 Zabbix 7.x requests use the `Authorization: Bearer` header. Earlier supported servers use the JSON-RPC `auth` property. Supplying `api_token` skips `user.login`, and `logout` only closes the local connection because an API token is not a Zabbix user session. API tokens are rejected on plain HTTP unless `allow_insecure_http: true` is explicitly set.
 
+### Environment configuration
+
+Environment loading is explicit. `connect` uses only its keyword arguments; `from_env` reads exactly four variables:
+
+| Variable | Option |
+| --- | --- |
+| `ZABBIX_URL` | `url` |
+| `ZABBIX_API_TOKEN` | `api_token` |
+| `ZABBIX_USERNAME` | `username` |
+| `ZABBIX_PASSWORD` | `password` |
+
+```ruby
+zabbix = ZabbixManager.from_env(verify_ssl: true)
+```
+
+Explicit keyword arguments override environment values, including `nil` to clear an inherited credential. Set either an API token or a username/password pair. Unknown options and non-boolean flags are rejected before connecting. Timeouts, logging and locking remain ordinary keyword options.
+
+The HTTP transport uses Ruby's standard proxy discovery (`http_proxy`/`HTTP_PROXY`, `no_proxy`/`NO_PROXY`, with CGI protection). `no_proxy: true` disables proxies; `proxy: "http://proxy.example:8080"` selects an explicit HTTP proxy. HTTPS proxy URLs are rejected because this transport does not encrypt the connection to the proxy itself.
+
 ### Username and password
 
 ```ruby
@@ -61,7 +79,7 @@ A client keeps one persistent `Net::HTTP` session and serializes access to it, s
 
 ### Logging and HTTPS
 
-Pass any Ruby Logger-compatible object to receive connection, request completion, duration, and failure events:
+Pass a Ruby Logger or ActiveSupport logger to receive connection, request completion, duration, and failure events:
 
 ```ruby
 zabbix = ZabbixManager.connect(
@@ -71,7 +89,9 @@ zabbix = ZabbixManager.connect(
 )
 ```
 
-Passwords, API tokens, authorization values, cookies, and session IDs are filtered. Request parameters and response bodies are not logged; debug events contain only operation metadata.
+Logging uses `ActiveSupport::Logger` and `ActiveSupport::TaggedLogging`; structured credential filtering uses `ActiveSupport::ParameterFilter`. Pass `log_level: :info` to create a logger on standard error, or inject your application's logger. Logging is disabled unless one of these options is supplied, and logging failures do not change API outcomes.
+
+Passwords, API tokens, authorization values, cookies, and session IDs are filtered. Request parameters and response bodies are not logged. API exceptions expose the server error code and request ID, without remote messages or data that might echo arbitrary secrets. Malformed or mismatched JSON-RPC responses and invalid mutation ID receipts raise `ProtocolError < TransportError`: a write may already have happened, so it must not be blindly replayed.
 
 HTTPS certificate verification is disabled by default as required by this project. Set `verify_ssl: true` (and optionally `ca_file:`) to enable peer verification.
 
@@ -81,18 +101,19 @@ Timeouts can be set together with `timeout:` or independently with `open_timeout
 
 ### Device and interface monitoring
 
-`monitoring` provides idempotent workflows for frequent device and line updates. Item identity is the stable pair `hostid + key_`; managed triggers use a dedicated `zabbix_manager_id` tag. Missing remote objects are created and existing ones are updated. Omitted objects are never deleted.
+`monitoring` provides device and line workflows using native Zabbix APIs only. There are no SQL operations, Rails models or persistence dependencies. Item identity is the stable pair `hostid + key_`; managed triggers use a dedicated `zabbix_manager_id` tag. Missing objects are created and existing ones are updated. Optional line checks removed from a definition are disabled after the remaining desired checks succeed; objects are never automatically deleted.
 
-For a line inventory that already has interface traffic items discovered by Zabbix, use `reconcile_line`. It accepts the field names from the historical `add_line_monitors.rb` importer, locates the host and the unique inbound/outbound items, then creates or updates one combined trigger. Use a stable, non-secret `line_id` so interface renames update the same trigger.
+For a line inventory that already has interface traffic items discovered by Zabbix, use `reconcile_line`. It locates the host and unique inbound/outbound items, then creates or updates the selected checks. Use canonical fields `host` (or `host_candidates`), `interface_name`, `capacity_mbps`, and a stable, non-secret endpoint `line_id`. Convert external inventory column names before calling the library.
+
+The complete workflows and return values are documented in [device monitoring](examples/device_monitoring.md), [line monitoring](examples/line_monitoring.md), and [traffic queries](examples/traffic.md). Public method comments document input, output, failures and remote side effects.
 
 ```ruby
 zabbix.monitoring.reconcile_line(
   line_id: "line-42",
   description: "Example upstream circuit",
-  capacity: 200, # Mbps
-  device1: "edge-switch-01",
-  ipaddr1: "192.0.2.10",
-  iface1: "Ten-GigabitEthernet1/0/49",
+  capacity_mbps: 200,
+  host_candidates: ["edge-switch-01", "192.0.2.10"],
+  interface_name: "Ten-GigabitEthernet1/0/49",
   isp: "Example ISP",
   high_water: 0.90,
   recovery_water: 0.80,
@@ -102,11 +123,11 @@ zabbix.monitoring.reconcile_line(
 )
 ```
 
-The lookup accepts full and abbreviated interface names such as `Ten-GigabitEthernet1/0/49` and `Te1/0/49`. It refuses zero or multiple direction matches instead of selecting an item by response order. Existing triggers from the importer can be adopted when their description and `category=line_bandwidth` tag match.
+The lookup accepts full and abbreviated interface names such as `Ten-GigabitEthernet1/0/49` and `Te1/0/49`. It refuses zero or multiple direction matches instead of selecting an item by response order. Trigger ownership comes from the managed identity tag; matching descriptions alone never adopt unrelated triggers.
 
 Use `reconcile_lines(lines)` for imports. It reuses host and item discovery results within the batch, avoiding a full `item.get` scan for every line.
 
-For a device-and-line batch, use `reconcile_network`. The whole input is structurally validated before the first device write. Devices are reconciled first, then lines, and the return value contains per-entry results plus a summary. Template linking and low-level discovery are asynchronous in Zabbix: if a new device's traffic items are not available yet, its line result is an error and the same batch can be safely rerun later.
+For a device-and-line batch, use `reconcile_network`. The whole input is structurally validated before the first device write. Devices are reconciled first, then lines, and the return value contains per-entry results plus a summary. Template linking and low-level discovery are asynchronous in Zabbix: retry discovery after the required items become available. Inspect any `:unknown` write outcome before repeating that entry.
 
 ```ruby
 result = zabbix.monitoring.reconcile_network(
@@ -114,16 +135,13 @@ result = zabbix.monitoring.reconcile_network(
     {
       host: "edge-router-01",
       name: "Example edge router",
-      groups: [{ groupid: 20 }],
-      interfaces: [{
-        type: 2, main: 1, useip: 1, ip: "192.0.2.10", dns: "", port: "161",
-        details: { version: 2, community: ENV.fetch("SNMP_COMMUNITY") }
-      }]
+      groups: ["Network devices"],
+      snmp: { ip: "192.0.2.10", community: ENV.fetch("SNMP_COMMUNITY") }
     }
   ],
   lines: [
     {
-      line_id: "line-42", device: "edge-router-01",
+      line_id: "line-42", host: "edge-router-01",
       interface_name: "Ten-GigabitEthernet1/0/49", capacity_mbps: 200,
       high_water: 0.90, recovery_water: 0.80
     }
@@ -134,7 +152,7 @@ result.fetch(:summary)
 ```
 
 ```ruby
-hostid = zabbix.monitoring.reconcile_device(
+receipt = zabbix.monitoring.reconcile_device(
   host: "router-01",
   name: "Core router 01",
   groups: [{ groupid: 20 }],
@@ -148,10 +166,14 @@ hostid = zabbix.monitoring.reconcile_device(
     details: { version: 2, community: ENV.fetch("SNMP_COMMUNITY") }
   }]
 )
+hostid = receipt.fetch(:hostid)
+snmp_interface = zabbix.host_interfaces.for_host(hostid).find do |interface|
+  interface["type"] == "2" && interface["main"] == "1"
+end
 
 zabbix.monitoring.reconcile_interface(
   host: { hostid: hostid, host: "router-01" },
-  interface: { name: "GigabitEthernet1/0/1", interfaceid: 12 },
+  interface: { name: "GigabitEthernet1/0/1", interfaceid: snmp_interface.fetch("interfaceid") },
   items: {
     inbound_bps: {
       key_: "if.hc.in.bps[1]", name: "WAN inbound", type: 20, value_type: 0,
@@ -192,9 +214,9 @@ zabbix.monitoring.reconcile_interface(
 )
 ```
 
-The library does not guess that SNMP discard/error counters equal packet-loss percentage. Supply an actual packet-loss item key (for example an ICMP loss item) and its item definition. Raw HC-octet traffic items must expose `bps` units and include change-per-second plus multiplier-8 preprocessing; otherwise line reconciliation refuses to build a dimensionally incorrect trigger. Thresholds use separate high and recovery values to avoid alert flapping.
+The library does not guess that SNMP discard/error counters equal packet-loss percentage. Supply an actual packet-loss item key (for example an ICMP loss item) and its item definition. Raw HC-octet traffic items must expose `bps` units and include change-per-second plus multiplier-8 preprocessing; otherwise line reconciliation refuses to build a dimensionally incorrect trigger. Thresholds use separate high and recovery values to avoid alert flapping. Line `high_water` and `recovery_water` are ratios greater than zero and at most one; percentages such as `90` are rejected. Interface threshold recovery is inclusive (`<=`), so a zero recovery threshold remains attainable.
 
-Reconciliation is a sequence of remote API calls, not a transaction. Single-object methods raise immediately; batch methods return a sanitized error for each failed entry unless `fail_fast: true` is passed. A retry safely converges already-created items by stable keys. If a trigger create loses its response and cannot be confirmed by readback, `ResultUnknown` is raised and must not be automatically retried. The readback schedule can be set with `uncertain_write_delays:` (up to 60 seconds total). The trigger upsert is serialized within one client process. For multiple workers, inject a callable `upsert_lock` adapter that runs the block under an application-level distributed lock.
+Reconciliation is a sequence of remote API calls, not a transaction. Single-object methods raise immediately; batch methods return a sanitized error for each failed entry unless `fail_fast: true` is passed. Batch results distinguish `ok`, `error`, and `unknown`; summaries count each status. Transport failures during device reconciliation are conservatively `unknown`, since that workflow includes both lookup and write calls. Successful earlier remote writes are not rolled back if a later operation fails. After an uncertain outcome has been resolved, a retry can converge already-created items by stable keys. If a trigger create loses its response, readback must confirm both its managed identity and requested attributes. If that cannot be confirmed, `ResultUnknown` is raised and must not be automatically retried. A definite API rejection is propagated. The readback schedule can be set with `uncertain_write_delays:` (up to 60 seconds total). Trigger upserts and dependency read/modify/write operations are serialized within one client process. For multiple workers, inject a callable `upsert_lock` adapter that runs the block under an application-level distributed lock.
 
 ```ruby
 ZabbixManager.connect(
@@ -204,40 +226,32 @@ ZabbixManager.connect(
 )
 ```
 
-Invalid caller input raises `ZabbixManager::Invalid`, ambiguous remote ownership raises `ZabbixManager::Conflict`, Zabbix JSON-RPC failures raise `ZabbixManager::ApiError`, HTTP/network failures raise `ZabbixManager::TransportError`, and uncertain remote writes raise `ZabbixManager::ResultUnknown`. Destructive/status/dependency methods require `hostid:` and verify ownership before writing. Dependencies default to the same host; cross-host dependencies require `allow_cross_host_dependencies: true`. Do not pass untrusted page parameters directly to raw `query` calls.
+Invalid caller input raises `ZabbixManager::Invalid`, ambiguous remote ownership raises `ZabbixManager::Conflict`, Zabbix JSON-RPC failures raise `ZabbixManager::ApiError`, HTTP/network failures raise `ZabbixManager::TransportError`, and uncertain remote writes raise `ZabbixManager::ResultUnknown`. The focused item/interface/trigger deletion, status and dependency helpers require `hostid:` and verify existing ownership before writing. Custom trigger expressions and raw resource methods accept trusted Zabbix definitions; the host lookup context does not replace application authorization. Dependencies default to the same host; cross-host dependencies require `allow_cross_host_dependencies: true`. Do not pass untrusted page parameters directly to `query`, raw resource methods, or custom expressions.
 
 ### High-frequency API modules
 
-The focused modules expose explicit current operations instead of compatibility aliases:
+`traffic.series` reads explicit item IDs; `traffic.for_interface` discovers both interface directions. Both expose missing data and query truncation, preserve numeric precision, and keep raw history separate from hourly trends. They never substitute zero or a stale last value for missing samples.
 
-* `hosts.reconcile`, `hosts.find_by_id`, `hosts.find_by_candidates`, `hosts.set_status`
-* `hostinterfaces.for_host`, `hostinterfaces.reconcile_for_host`, `hostinterfaces.delete_many`
+Multiword resource accessors use Ruby snake_case: `host_groups`, `host_interfaces`, `http_tests`, `media_types`, `proxy_groups`, `user_groups`, `user_macros`, `value_maps`, and `discovery_rules`.
+
+The focused modules expose explicit operations:
+
+* `hosts.reconcile`, `hosts.resolve`, `hosts.find_by_id`, `hosts.find_by_candidates`, `hosts.set_status`
+* `monitoring.reconcile_device`, `monitoring.reconcile_devices`, `monitoring.reconcile_network`
+* `monitoring.plan_line`, `monitoring.reconcile_line`, `monitoring.line_triggers`, `monitoring.line_problems`, `monitoring.disable_line`
+* `hosts.link_templates`, `hosts.replace_templates`, `hosts.unlink_templates`
+* `user_groups.replace_users`, `user_groups.replace_host_group_permissions`
+* `host_interfaces.for_host`, `host_interfaces.reconcile_for_host`, `host_interfaces.delete_many`
 * `items.for_host`, `items.upsert_by_key`, `items.upsert_many`, `items.set_status`, `items.delete_many`
 * `triggers.for_host`, `triggers.upsert_for_host`, `triggers.add_dependencies`, `triggers.replace_dependencies`, `triggers.set_status`, `triggers.delete_many`
 
 
 ## Supported Ruby Versions
-This library aims to support and is [tested against][github-ci] the following Ruby
-versions:
-
-* Ruby 2.7 and newer
-
-If something doesn't work on one of these versions, it's a bug.
-
-This library may inadvertently work (or seem to work) on other Ruby versions,
-however support will only be provided for the versions listed above.
-
-If you would like this library to support another Ruby version or
-implementation, you may volunteer to be a maintainer. Being a maintainer
-entails making sure all tests run and pass on that implementation. When
-something breaks on your implementation, you will be responsible for providing
-patches in a timely fashion. If critical issues for a particular implementation
-exist at the time of a major release, support for that Ruby version may be
-dropped.
+The minimum Ruby version is **3.4**. CI runs Ruby 3.4 and 4.0.
 
 ## Dependencies
 
-* net/http
+* net-http
 * active_support
 * json
 * logger
@@ -247,10 +261,15 @@ dropped.
 * Fork the project.
 * Base your work on the master branch.
 * Make your feature addition or bug fix, write tests, write documentation/examples.
-* Commit, do not mess with rakefile, version.
+* Run `bundle exec rake` and `bundle exec ruby script/verify_package.rb`.
 * Make a pull request.
 
 ## CI and release
+
+`script/verify_package.rb` checks the complete library inventory, installs into an isolated gem directory, exercises authentication and a resource request over a local HTTP socket, then saves that exact verified archive under `pkg/`. It also works when invoked outside the checkout.
+
+Development tools are declared once in `Gemfile`, without historical version pins. `Gemfile.lock` records the versions verified together. Runtime dependencies declare only the minimum API version needed by the library; update the lockfile and run the gates when changing dependencies.
+
 
 Pull requests and pushes to `master` run RSpec, documentation coverage, RuboCop, whitespace checks, and a built-Gem install smoke test. A `v<gem-version>` tag repeats the project gate, validates the tag/version, builds and installs a release candidate, then publishes that exact file through RubyGems Trusted Publishing. Configure the RubyGems trusted publisher for repository `gatework/zabbix_manager`, workflow `release.yml`, and environment `release` before pushing a release tag.
 

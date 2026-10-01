@@ -1,9 +1,9 @@
-require:
+plugins:
   - rubocop-packaging
   - rubocop-performance
 
 AllCops:
-  TargetRubyVersion: 2.7
+  TargetRubyVersion: 3.4
   DisabledByDefault: true
   NewCops: disable
   SuggestExtensions: false
@@ -30,13 +30,6 @@ Packaging:
 Layout:
   Enabled: true
 
-# 锁定的 RuboCop 1.26 在 Ruby 4 下执行这两条规则会崩溃，升级前保留其余布局规则。
-Layout/IndentationConsistency:
-  Enabled: false
-
-Layout/IndentationWidth:
-  Enabled: false
-
 Layout/LineLength:
   Enabled: true
   Max: 120
@@ -47,9 +40,6 @@ Style/AndOr:
 Style/FrozenStringLiteralComment:
   Enabled: true
   EnforcedStyle: always
-
-Style/HashSyntax:
-  Enabled: true
 
 Style/RedundantFreeze:
   Enabled: true
@@ -68,11 +58,22 @@ Metrics/ClassLength:
   Max: 400
   Exclude:
     - "spec/**/*"
-    # Monitoring 聚合设备、接口和线路阈值编排，按业务边界保留在一个公开入口。
-    - "lib/zabbix_manager/monitoring.rb"
 
 Metrics/MethodLength:
   Enabled: true
   Max: 45
   Exclude:
     - "spec/**/*"
+
+Style/For:
+  Enabled: true
+
+Style/EachForSimpleLoop:
+  Enabled: true
+
+Style/MapToHash:
+  Enabled: true
+
+Style/HashSyntax:
+  Enabled: true
+  EnforcedShorthandSyntax: either

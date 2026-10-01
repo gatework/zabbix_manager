@@ -10,21 +10,21 @@ For more information and available properties please refer to the Zabbix API doc
 ### Active Proxy
 ```ruby
 zbx.proxies.create(
-  :host => "Proxy 1",
-  :status => 5
+  host: "Proxy 1",
+  status: 5
 )
 ```
 
 ### Passive Proxy
 ```ruby
 zbx.proxies.create(
-  :host => "Passive proxy",
-  :status => 6,
-  :interfaces => [
-    :ip => "127.0.0.1",
-    :dns => "",
-    :useip => 1,
-    :port => 10051
+  host: "Passive proxy",
+  status: 6,
+  interfaces: [
+    ip: "127.0.0.1",
+    dns: "",
+    useip: 1,
+    port: 10051
   ]
 )
 ```
