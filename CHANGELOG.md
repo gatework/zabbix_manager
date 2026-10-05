@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## 6.0.2 (2026-10-05)
+
+* Use the repository account name for Gem author metadata.
+
 ## 6.0.1 (2026-10-05)
 
 * Discover batch item keys once per host and validate returned ownership, identities and duplicate targets before writes.

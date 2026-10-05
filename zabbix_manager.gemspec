@@ -11,7 +11,7 @@ Gem::Specification.new do |spec|
 
   spec.name    = "zabbix_manager"
   spec.version = ZabbixManager::VERSION
-  spec.authors = ["WENWU YAN"]
+  spec.authors = ["gatework"]
   spec.email   = ["careline@foxmail.com"]
 
   spec.summary     = "Ruby client and monitoring workflows for the Zabbix 4.0 through 7.x API"
