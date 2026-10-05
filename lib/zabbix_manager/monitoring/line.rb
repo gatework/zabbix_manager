@@ -14,11 +14,12 @@ class ZabbixManager
       attr_reader :host_reference, :interface_name, :threshold, :low_traffic, :status, :speed,
                   :reachability_target, :metadata
 
+      # 保存调用方定义的独立快照；等待锁和远端发现期间不重新读取可变输入。
       # 仅解析本地定义，不访问服务器；status/speed 为开关或显式 itemid 选择器。
       # @param attributes [Hash] 规范化后的单端点清单字段
       # @raise [Invalid] 字段、阈值或目标格式不合法
       def initialize(attributes)
-        @attributes = Validation.hash!(attributes, "line")
+        @attributes = Validation.hash!(attributes, "line").deep_dup
         @attributes.assert_valid_keys(*FIELDS)
         @interface_name = Validation.text!(@attributes[:interface_name], "line interface_name")
         validate_identity!
@@ -88,7 +89,7 @@ class ZabbixManager
         end
 
         candidates = @attributes.key?(:host_candidates) ?
-          Validation.array!(@attributes[:host_candidates], "host_candidates") : [host]
+                       Validation.array!(@attributes[:host_candidates], "host_candidates") : [host]
         candidates = candidates.map { |value| Validation.text!(value, "line host candidate").strip }.uniq
         raise Invalid, "line host candidate is required" if candidates.empty?
 

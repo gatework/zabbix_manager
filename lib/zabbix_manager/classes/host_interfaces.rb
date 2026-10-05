@@ -24,11 +24,11 @@ class ZabbixManager
     # 查询指定主机的全部接口，可选择同时返回关联监控项。
     # @return [Array<Hash>]
     def for_host(hostid, select_items: nil)
-      raise Invalid, "hostid is required" if hostid.blank?
+      positive_id_attribute(hostid, "hostid")
 
       params = { hostids: hostid, output: "extend" }
       params[:selectItems] = select_items if select_items
-      @client.api_request(method: "hostinterface.get", params: params)
+      response_objects(@client.api_request(method: "hostinterface.get", params: params))
     end
 
     # 规范化并校验接口定义，不执行远端查询或写入。
@@ -67,7 +67,7 @@ class ZabbixManager
     def delete_many(hostid:, interfaceids:)
       ids = normalized_ids(interfaceids)
 
-      owned_ids = for_host(hostid).map { |interface| interface.fetch("interfaceid").to_s }
+      owned_ids = for_host(hostid).map { |interface| response_identifier(interface["interfaceid"]).to_s }
       foreign_ids = ids - owned_ids
       raise Conflict, "interfaces do not belong to host #{hostid}: #{foreign_ids.join(", ")}" if foreign_ids.any?
 
@@ -104,7 +104,7 @@ class ZabbixManager
     def normalize_definition(interface)
       raise Invalid, "interface must be a hash" unless interface.is_a?(Hash)
 
-      attributes = interface.deep_symbolize_keys
+      attributes = interface.deep_symbolize_keys.deep_dup
       if attributes.key?(:type)
         type = integer_attribute(attributes[:type], "interface type")
         raise Invalid, "interface type must be 1, 2, 3, or 4" unless [1, 2, 3, 4].include?(type)

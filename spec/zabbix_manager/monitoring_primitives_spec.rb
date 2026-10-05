@@ -13,7 +13,7 @@ RSpec.describe "monitoring primitives" do
     items = ZabbixManager::Items.new(client)
     allow(client).to receive(:api_request)
       .with(method: "item.get", params: hash_including(hostids: 101, filter: { key_: "net.if.in[1]" }))
-      .and_return([{ "itemid" => "202" }])
+      .and_return([{ "itemid" => "202", "hostid" => "101", "key_" => "net.if.in[1]" }])
     allow(client).to receive(:api_request)
       .with(method: "item.update", params: hash_including(itemid: "202", key_: "net.if.in[1]"))
       .and_return("itemids" => ["202"])
@@ -36,10 +36,12 @@ RSpec.describe "monitoring primitives" do
   it "updates an existing host-scoped trigger" do
     triggers = ZabbixManager::Triggers.new(client)
     allow(client).to receive(:api_request)
-      .with(method: "trigger.get", params: hash_including(hostids: 101, filter: { description: "WAN loss high" }))
+      .with(method: "trigger.get", params: hash_including(hostids: 101,
+                                                          filter: { description: "WAN loss high" }))
       .and_return([{ "triggerid" => "301" }])
     allow(client).to receive(:api_request)
-      .with(method: "trigger.update", params: hash_including(triggerid: "301", expression: "last(/r/key)>5"))
+      .with(method: "trigger.update", params: hash_including(triggerid: "301",
+                                                             expression: "last(/r/key)>5"))
       .and_return("triggerids" => ["301"])
 
     expect(

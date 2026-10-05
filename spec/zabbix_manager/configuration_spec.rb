@@ -27,6 +27,19 @@ RSpec.describe ZabbixManager::Configuration do
     end
   end
 
+  it "rejects API tokens that cannot be sent safely in a Bearer header before opening a connection" do
+    ["secret\r\nInjected: value", "secret\0", "secret".encode("UTF-16LE")].each do |token|
+      expect(ZabbixManager::HttpTransport).not_to receive(:new)
+      expect { ZabbixManager::Client.new(**settings.merge(api_token: token)) }
+        .to raise_error(ZabbixManager::Invalid, /api_token/)
+    end
+  end
+
+  it "retains Unicode username and password credentials" do
+    options = settings.merge(api_token: nil, username: "管理员", password: "密码")
+    expect(described_class.parse(options).values_at(:username, :password)).to eq(%w[管理员 密码])
+  end
+
   it "copies connection strings and schedules before storing them" do
     token = +"secret"
     delays = [0, 1]
@@ -64,5 +77,12 @@ RSpec.describe ZabbixManager::Configuration do
 
   it "does not show secrets when inspected" do
     expect(described_class.new(settings).inspect).not_to include("secret")
+  end
+  it "rejects a logger without a severity setter when log_level is specified" do
+    logger = Object.new
+    %i[debug info warn formatter formatter=].each { |name| logger.define_singleton_method(name) { |*| nil } }
+
+    expect { described_class.parse(settings.merge(logger: logger, log_level: Logger::INFO)) }
+      .to raise_error(ZabbixManager::Invalid, /logger/)
   end
 end

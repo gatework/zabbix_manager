@@ -54,6 +54,8 @@ class ZabbixManager
           }
         }
       )
+      result = response_objects(result)
+      result.each { |proxy_data| response_identifier(proxy_data["proxyid"]) }
       raise Conflict, "proxy lookup is ambiguous for #{proxy}" if result.length > 1
 
       result.first&.fetch("proxyid", nil)

@@ -67,7 +67,8 @@ RSpec.describe ZabbixManager::HostInterfaces do
       "ip" => "192.0.2.10", "dns" => "", "port" => "10050"
     }
     allow(client).to receive(:api_request)
-      .with(method: "hostinterface.get", params: { hostids: 10_101, output: "extend" }).and_return([existing])
+      .with(method: "hostinterface.get", params: { hostids: 10_101,
+                                                   output: "extend" }).and_return([existing])
     allow(client).to receive(:api_request).with(
       method: "hostinterface.update", params: hash_including(interfaceid: "12", main: 1)
     ).and_return("interfaceids" => ["12"])

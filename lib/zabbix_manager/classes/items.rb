@@ -41,22 +41,20 @@ class ZabbixManager
     # 查询主机监控项，可按稳定 key 集合过滤并选择关联对象。
     # @return [Array<Hash>]
     def for_host(hostid, keys: nil, output: "extend", select_preprocessing: nil, select_tags: nil)
-      raise Invalid, "hostid is required" if hostid.blank?
+      positive_id_attribute(hostid, "hostid")
 
       params = { hostids: hostid, output: output }
       params[:filter] = { key_: keys } if keys.present?
       params[:selectPreprocessing] = select_preprocessing if select_preprocessing
       params[:selectTags] = select_tags if select_tags
-      @client.api_request(method: "item.get", params: params)
+      response_objects(@client.api_request(method: "item.get", params: params))
     end
 
     # 按主机和稳定 key 查询唯一监控项。
     # @return [Hash, nil]
     def find_by_key(hostid:, key:)
       result = for_host(hostid, keys: key, output: "extend", select_preprocessing: "extend")
-      raise Conflict, "multiple items use key #{key} on host #{hostid}" if result.length > 1
-
-      result.first
+      index_items(result, hostid, [key])[key]
     end
 
     # 按 hostid + key_ 幂等创建或更新监控项。
@@ -70,11 +68,15 @@ class ZabbixManager
     # @return [Array<Integer>]
     def upsert_many(collection)
       items = Array(collection).map { |data| validate_item!(data) }
-      identities = items.map { |item| [item[:hostid].to_s, item[:key_].to_s] }
+      identities = items.map { |item| [positive_id_attribute(item[:hostid], "hostid").to_s, item[:key_]] }
       duplicate = identities.tally.find { |_identity, count| count > 1 }&.first
       raise Invalid, "duplicate hostid + key_ identity #{duplicate.join(":")}" if duplicate
 
-      plans = items.map { |item| plan_item(item) }
+      existing = batch_items(items)
+      plans = items.map do |item|
+        identity = [positive_id_attribute(item[:hostid], "hostid").to_s, item[:key_]]
+        plan_item(item, existing[identity])
+      end
       if block_given?
         effective = plans.map do |attributes, current|
           if current && !%w[type value_type].all? { |field| current.key?(field) }
@@ -114,6 +116,7 @@ class ZabbixManager
     # 方向和接口精确匹配由 Monitoring 业务层负责。
     # @return [Array<Hash>]
     def monitored_traffic_candidates(hostid)
+      positive_id_attribute(hostid, "hostid")
       @client.api_request(
         method: "item.get",
         params: {
@@ -150,9 +153,44 @@ class ZabbixManager
 
     private
 
+    # 每个主机只读取一次期望 key 集合，全部发现和校验完成后才开始写入。
+    def batch_items(items)
+      groups = items.group_by { |item| positive_id_attribute(item[:hostid], "hostid").to_s }
+      ids = {}
+      groups.each_with_object({}) do |(owner, definitions), result|
+        hostid = definitions.first[:hostid]
+        keys = definitions.map { |item| item[:key_] }
+        rows = for_host(hostid, keys: keys, select_preprocessing: "extend")
+        index_items(rows, hostid, keys).each do |key, row|
+          id = response_identifier(row["itemid"])
+          raise ProtocolError, "item.get returned duplicate item IDs across hosts" if ids.key?(id)
+
+          ids[id] = true
+          result[[owner, key]] = row
+        end
+      end
+    end
+
+    # 不信任服务端过滤器：返回项必须位于所请求的主机和 key 集合中。
+    def index_items(rows, hostid, keys)
+      owner = positive_id_attribute(hostid, "hostid")
+      requested = keys.to_h { |key| [key, true] }
+      ids = {}
+      response_objects(rows).each_with_object({}) do |row, result|
+        id = response_identifier(row["itemid"])
+        unless response_identifier(row["hostid"], "hostid") == owner && requested.key?(row["key_"])
+          raise ProtocolError, "item.get returned an item outside the requested host and keys"
+        end
+        raise Conflict, "multiple items use the same key on host #{hostid}" if result.key?(row["key_"])
+        raise ProtocolError, "item.get returned duplicate item IDs" if ids.key?(id)
+
+        ids[id] = true
+        result[row["key_"]] = row
+      end
+    end
+
     # 创建必填字段必须在整批写入开始前校验。
-    def plan_item(attributes)
-      current = find_by_key(hostid: attributes[:hostid], key: attributes[:key_])
+    def plan_item(attributes, current = find_by_key(hostid: attributes[:hostid], key: attributes[:key_]))
       validate_item_type!(attributes[:type]) if attributes.key?(:type)
       response_identifier(current["itemid"]) if current
       unless current
@@ -177,10 +215,15 @@ class ZabbixManager
     # @return [Hash]
     # @api private
     def validate_item!(data)
-      attributes = data.deep_symbolize_keys
-      raise Invalid, "hostid is required" if attributes[:hostid].blank?
-      raise Invalid, "key_ is required" if attributes[:key_].blank?
-      raise Invalid, "name is required" if attributes[:name].blank?
+      raise Invalid, "item must be a hash" unless data.is_a?(Hash)
+
+      attributes = data.deep_symbolize_keys.deep_dup
+      positive_id_attribute(attributes[:hostid], "hostid")
+      %i[key_ name].each do |field|
+        unless attributes[field].is_a?(String) && attributes[field].present?
+          raise Invalid, "#{field} must be a non-empty string"
+        end
+      end
 
       attributes
     end
@@ -216,12 +259,12 @@ class ZabbixManager
 
     # 回查监控项归属，阻止共享高权限令牌跨主机修改。
     def verify_host_ownership!(hostid, ids)
-      raise Invalid, "hostid is required" if hostid.blank?
+      positive_id_attribute(hostid, "hostid")
 
       result = @client.api_request(
         method: "item.get", params: { hostids: hostid, itemids: ids, output: ["itemid"] }
       )
-      owned_ids = result.map { |item| item.fetch("itemid").to_s }
+      owned_ids = response_objects(result).map { |item| response_identifier(item["itemid"]).to_s }
       foreign_ids = ids - owned_ids
       raise Conflict, "items do not belong to host #{hostid}: #{foreign_ids.join(", ")}" if foreign_ids.any?
     end

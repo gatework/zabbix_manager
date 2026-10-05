@@ -96,6 +96,7 @@ class ZabbixManager
     private
 
     def unique_macro_id(result, id_field)
+      response_objects(result)
       raise Conflict, "multiple macros match the requested identity" if result.length > 1
 
       response_identifier(result.first[id_field], id_field) if result.first

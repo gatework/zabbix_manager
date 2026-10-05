@@ -56,6 +56,12 @@ class ZabbixManager
         value = @options[key]
         raise Invalid, "#{key} must be a String" unless value.nil? || value.is_a?(String)
 
+        if key == :api_token && value && !value.empty?
+          unless value.valid_encoding? && value.ascii_only? && value.match?(/\A[!-~]+\z/)
+            raise Invalid, "api_token must contain printable ASCII characters without whitespace"
+          end
+        end
+
         @options.delete(key) if value.blank?
       end
       raise Invalid, "url is required" if @options[:url].blank?
@@ -99,7 +105,9 @@ class ZabbixManager
       raise Invalid, "upsert_lock must respond to call(key, &block)" if lock && !lock.respond_to?(:call)
 
       logger = @options[:logger]
-      return if logger.nil? || %i[debug info warn formatter formatter=].all? { |method| logger.respond_to?(method) }
+      required = %i[debug info warn formatter formatter=]
+      required << :level= if @options.key?(:log_level)
+      return if logger.nil? || required.all? { |method| logger.respond_to?(method) }
 
       raise Invalid, "logger must support the Ruby Logger interface"
     end

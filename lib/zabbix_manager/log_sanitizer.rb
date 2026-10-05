@@ -9,9 +9,9 @@ class ZabbixManager
   module LogSanitizer
     REDACTED = "[FILTERED]"
     MAX_STRING_LENGTH = 2_000
-    SENSITIVE_KEY_NAMES = "auth|authorization|api_token|community|cookie|http_password|password|passwd|" \
-                          "privatekey|secret|sessionid|snmp_community|snmpv3_authpassphrase|" \
-                          "snmpv3_privpassphrase|tls_psk|tls_psk_identity|token"
+    SENSITIVE_KEY_NAMES = "auth|authorization|authpassphrase|api_token|community|cookie|" \
+      "http_password|password|passwd|privatekey|privpassphrase|secret|sessionid|snmp_community|snmpv3_authpassphrase|" \
+      "snmpv3_privpassphrase|tls_psk|tls_psk_identity|token"
     SENSITIVE_KEYS = /\A(?:#{SENSITIVE_KEY_NAMES})\z/i
     FILTER = ActiveSupport::ParameterFilter.new(
       [SENSITIVE_KEYS, ->(_key, value) { value.replace(sanitize_string(value)) if value.is_a?(String) }]
@@ -39,19 +39,18 @@ class ZabbixManager
     # 清理字符串中的认证头和常见敏感键值。
     def sanitize_string(value)
       sanitized = value.dup
-      sanitized.gsub!(/\b(Bearer|Basic)\s+[^\s,;]+/i, "\\1 #{REDACTED}")
+      # 先处理完整引号值，避免认证头规则在值内的分隔符处截断秘密。
       sanitized.gsub!(
-        /((?:authorization)["']?\s*(?:=>|:|=)\s*)[^,;}\]]+/i,
-        "\\1#{REDACTED}"
-      )
-      sanitized.gsub!(
-        /((?:#{SENSITIVE_KEY_NAMES})["']?\s*(?:=>|:|=)\s*)(["'])(.*?)\2/i,
+        /((?:#{SENSITIVE_KEY_NAMES})["']?\s*(?:=>|:|=)\s*)(["'])((?:\\.|(?!\2)[^\\])*)\2/im,
         "\\1\\2#{REDACTED}\\2"
       )
       sanitized.gsub!(
-        /((?:#{SENSITIVE_KEY_NAMES})["']?\s*(?:=>|:|=)\s*)(?!["'])[^,;}\]]+/i,
+        /((?:#{SENSITIVE_KEY_NAMES})["']?\s*(?:=>|:|=)\s*+)
+         (?!["']|#{Regexp.escape(REDACTED)}(?=[,;}\]]|\z))
+         (?:#{Regexp.escape(REDACTED)}|[^,;}\]])+/ix,
         "\\1#{REDACTED}"
       )
+      sanitized.gsub!(/\b(Bearer|Basic)\s+[^\s,;]+/i, "\\1 #{REDACTED}")
       sanitized.length > MAX_STRING_LENGTH ? "#{sanitized[0, MAX_STRING_LENGTH]}...[TRUNCATED]" : sanitized
     end
   end

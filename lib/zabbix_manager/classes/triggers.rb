@@ -43,7 +43,7 @@ class ZabbixManager
     # @return [Array<Hash>]
     def for_host(hostid, output: "extend", select_items: nil, select_functions: nil,
                  select_dependencies: nil, select_tags: nil, filter: nil)
-      raise Invalid, "hostid is required" if hostid.blank?
+      positive_id_attribute(hostid, "hostid")
 
       params = { hostids: hostid, output: output }
       params[:selectItems] = select_items if select_items
@@ -51,12 +51,13 @@ class ZabbixManager
       params[:selectDependencies] = select_dependencies if select_dependencies
       params[:selectTags] = select_tags if select_tags
       params[:filter] = filter if filter.present?
-      @client.api_request(method: "trigger.get", params: params)
+      response_objects(@client.api_request(method: "trigger.get", params: params))
     end
 
     # 按主机、描述和可选标签查询唯一触发器。
     # @return [Hash, nil]
     def find_for_host(hostid:, description:, tags: nil)
+      positive_id_attribute(hostid, "hostid")
       params = {
         hostids: hostid,
         filter: { description: description },
@@ -68,6 +69,8 @@ class ZabbixManager
         method: "trigger.get",
         params: params
       )
+      response_objects(result)
+      result.each { |trigger| response_identifier(trigger["triggerid"]) }
       raise Conflict, "multiple triggers match #{description} on host #{hostid}" if result.length > 1
 
       result.first
@@ -79,6 +82,7 @@ class ZabbixManager
     # @param managed_key [String] 稳定、非秘密的受管身份
     # @return [Hash, nil]
     def find_managed_for_host(hostid:, managed_key:)
+      positive_id_attribute(hostid, "hostid")
       result = @client.api_request(
         method: "trigger.get",
         params: {
@@ -90,6 +94,8 @@ class ZabbixManager
           selectTags: "extend"
         }
       )
+      response_objects(result)
+      result.each { |trigger| response_identifier(trigger["triggerid"]) }
       raise Conflict, "multiple triggers use managed key #{managed_key}" if result.length > 1
 
       result.first
@@ -101,7 +107,12 @@ class ZabbixManager
       id = normalized_ids([triggerid]).first
       params = { triggerids: id, output: "extend" }
       params[:selectDependencies] = select_dependencies if select_dependencies
-      result = @client.api_request(method: "trigger.get", params: params)
+      result = response_objects(@client.api_request(method: "trigger.get", params: params))
+      result.each do |trigger|
+        unless response_identifier(trigger["triggerid"]).to_s == id
+          raise ProtocolError, "trigger.get returned an unexpected trigger ID"
+        end
+      end
       raise Conflict, "multiple triggers use triggerid #{id}" if result.length > 1
 
       result.first
@@ -111,7 +122,8 @@ class ZabbixManager
     # 可通过 Client 的 upsert_lock 接入跨进程锁。
     # @return [Integer]
     def upsert_for_host(data)
-      attributes = data.deep_symbolize_keys
+      attributes = data.deep_symbolize_keys.deep_dup
+      positive_id_attribute(attributes[:hostid], "hostid")
       lock_key = "trigger:#{attributes[:hostid]}:#{attributes[:managed_key] || attributes[:description]}"
       @client.with_upsert_lock(lock_key) { perform_upsert_for_host(attributes) }
     end
@@ -185,7 +197,7 @@ class ZabbixManager
       attributes = data.deep_symbolize_keys
       hostid = attributes.delete(:hostid)
       managed_key = attributes.delete(:managed_key)&.to_s
-      raise Invalid, "hostid is required" if hostid.blank?
+      positive_id_attribute(hostid, "hostid")
       raise Invalid, "description is required" if attributes[:description].blank?
       raise Invalid, "expression is required" if attributes[:expression].blank?
 
@@ -228,7 +240,7 @@ class ZabbixManager
 
       raise ResultUnknown,
             "trigger create result is unknown; inspect managed key #{managed_key.inspect} before retrying: " \
-            "#{original_error.message}"
+              "#{original_error.message}"
     end
 
     # 对结果不确定的创建执行短暂退避回读，不重放写请求。
@@ -269,12 +281,12 @@ class ZabbixManager
 
     # 回查触发器归属，阻止共享高权限令牌跨主机修改。
     private def verify_host_ownership!(hostid, ids)
-      raise Invalid, "hostid is required" if hostid.blank?
+      positive_id_attribute(hostid, "hostid")
 
       result = @client.api_request(
         method: "trigger.get", params: { hostids: hostid, triggerids: ids, output: ["triggerid"] }
       )
-      owned_ids = result.map { |trigger| trigger.fetch("triggerid").to_s }
+      owned_ids = response_objects(result).map { |trigger| response_identifier(trigger["triggerid"]).to_s }
       foreign_ids = ids - owned_ids
       raise Conflict, "triggers do not belong to host #{hostid}: #{foreign_ids.join(", ")}" if foreign_ids.any?
     end

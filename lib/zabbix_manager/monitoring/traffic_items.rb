@@ -102,6 +102,7 @@ class ZabbixManager
         counter_direction(item[:snmp_oid]) || item[:key_].to_s.match?(/if(?:hc)?(in|out)octets/i) ||
           (%w[0 7].include?(item[:type].to_s) && item[:key_].match?(/\Anet\.if\.(in|out)\[/))
       end
+
       private_class_method :raw_counter?
 
       private

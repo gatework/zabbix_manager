@@ -89,7 +89,8 @@ RSpec.describe ZabbixManager::UserMacros do
 
   it "deletes global macros using their global IDs" do
     expect(client).to receive(:api_request)
-      .with(method: "usermacro.deleteglobal", params: %w[20 21]).and_return("globalmacroids" => %w[20 21])
+      .with(method: "usermacro.deleteglobal", params: %w[20
+                                                         21]).and_return("globalmacroids" => %w[20 21])
     expect(macros.delete_global([20, 21])).to eq(20)
   end
 end

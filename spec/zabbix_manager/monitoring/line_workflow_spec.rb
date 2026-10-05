@@ -97,6 +97,39 @@ RSpec.describe "managed line monitoring" do
     expect(requests.map(&:first)).to all(end_with(".get"))
   end
 
+  %i[plan_line reconcile_line].each do |operation|
+    it "snapshots caller-owned line strings before #{operation} starts discovery" do
+      input = full_definition.except(:status, :speed, :reachability_target, :low_traffic).deep_dup
+      input[:problem_window] = +"5m"
+      input[:line_id] = +"WAN:A"
+      input[:interface_name] = +"Gi1/0/1"
+      other_port = inventory.first(2).map do |item|
+        item.transform_values { |value| value.is_a?(String) ? value.gsub("Gi1/0/1", "Gi1/0/2") : value }
+            .merge("itemid" => (item.fetch("itemid").to_i + 10).to_s,
+                   "key_" => item.fetch("key_").sub("[1]", "[2]"))
+      end
+      inventory.concat(other_port)
+      allow(manager.hosts).to receive(:resolve).and_wrap_original do |resolve, reference|
+        input[:interface_name].replace("Gi1/0/2")
+        input[:line_id].replace("WAN:B")
+        input[:problem_window].replace("1h")
+        input[:comments].replace("changed comment")
+        input[:tags].first[:value].replace("changed service")
+        resolve.call(reference)
+      end
+
+      result = monitoring.public_send(operation, input)
+      attributes = operation == :plan_line ? result[:triggers][:bandwidth] : remote_triggers.first.deep_symbolize_keys
+
+      expect(result).to include(interface: "Gi1/0/1", line_id: "WAN:A")
+      expect(result[:itemids]).to include(inbound: 1, outbound: 2)
+      expect(attributes[:expression]).to include("net.if.in[1],5m")
+      expect(attributes[:comments]).to eq("Provider A")
+      expect(attributes[:tags]).to include({ tag: "service", value: "WAN" }, { tag: "line_id", value: "WAN:A" })
+      expect(input[:interface_name]).to eq("Gi1/0/2")
+    end
+  end
+
   it "creates status first, wires dependencies, and reuses the same trigger IDs on the next reconciliation" do
     first = monitoring.reconcile_line(full_definition)
     second = monitoring.reconcile_line(full_definition)

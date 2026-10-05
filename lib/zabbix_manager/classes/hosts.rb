@@ -145,6 +145,7 @@ class ZabbixManager
     # 按主机 ID 查询唯一主机，并返回表达式需要的技术名称。
     # @return [Hash, nil]
     def find_by_id(hostid)
+      positive_id_attribute(hostid, "hostid")
       find_host_by_filter(hostid: hostid)
     end
 
@@ -233,6 +234,7 @@ class ZabbixManager
           selectInterfaces: %w[interfaceid ip dns]
         }
       )
+      response_objects(result)
       raise Conflict, "host lookup is ambiguous for #{filter.inspect}" if result.length > 1
 
       response_identifier(result.first["hostid"]) if result.first
@@ -247,6 +249,7 @@ class ZabbixManager
           method: "hostinterface.get",
           params: { filter: { field => candidate }, output: ["hostid"] }
         )
+        response_objects(result).each { |interface| response_identifier(interface["hostid"], "hostid") }
         matches.concat(result)
       end
       matches.uniq! { |interface| interface.fetch("hostid") }
@@ -264,6 +267,7 @@ class ZabbixManager
           filter: filter
         }
       )
+      response_objects(result)
       raise Conflict, "host lookup is ambiguous for #{filter.inspect}" if result.length > 1
 
       response_identifier(result.first["hostid"]).to_s if result.first

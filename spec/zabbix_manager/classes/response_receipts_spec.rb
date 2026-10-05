@@ -60,7 +60,7 @@ RSpec.describe "Confirmed resource write receipts" do
 
   it "rejects fractional type on an existing item" do
     allow(client).to receive(:api_request).with(method: "item.get", params: anything)
-                                          .and_return([{ "itemid" => "10" }])
+                                          .and_return([{ "itemid" => "10", "hostid" => "1", "key_" => "uptime" }])
     expect(client).not_to receive(:api_request).with(hash_including(method: "item.update"))
     expect do
       ZabbixManager::Items.new(client).upsert_by_key(hostid: 1, name: "Uptime", key_: "uptime", type: 0.9)

@@ -74,7 +74,8 @@ RSpec.describe ZabbixManager::Monitoring do
     expect(result[:devices]).to contain_exactly(
       { status: :ok, device: { host: "router-01", name: "Example router" },
         result: { hostid: 10_101, enabled: true, managed: {} } },
-      hash_including(status: :error, device: { host: "router-02", name: "Example backup router" })
+      hash_including(status: :error,
+                     device: { host: "router-02", name: "Example backup router" })
     )
     expect(result[:lines].first).to include(status: :ok)
     expect(result[:summary]).to eq(
@@ -144,15 +145,16 @@ RSpec.describe ZabbixManager::Monitoring do
     expect(result).to eq(
       hostid: 10_101,
       interface: "GigabitEthernet1/0/1",
-      itemids: { inbound_bps: 201, outbound_bps: 202, in_errors: 203, out_errors: 204, packet_loss: 205 },
+      itemids: { inbound_bps: 201, outbound_bps: 202, in_errors: 203, out_errors: 204,
+                 packet_loss: 205 },
       triggerids: { bandwidth: 301, errors: 302, packet_loss: 303 }
     )
     expect(items).to have_received(:upsert_many)
       .with(all(include(hostid: 10_101, interfaceid: 12)))
     expected_problem = "avg(/router-01/net.if.in[ifHCInOctets.1],5m)>800000000 or " \
-                       "avg(/router-01/net.if.out[ifHCOutOctets.1],5m)>800000000"
+      "avg(/router-01/net.if.out[ifHCOutOctets.1],5m)>800000000"
     expected_recovery = "avg(/router-01/net.if.in[ifHCInOctets.1],5m)<=700000000 and " \
-                        "avg(/router-01/net.if.out[ifHCOutOctets.1],5m)<=700000000"
+      "avg(/router-01/net.if.out[ifHCOutOctets.1],5m)<=700000000"
     expect(triggers).to have_received(:upsert_for_host).with(
       hash_including(
         expression: expected_problem,

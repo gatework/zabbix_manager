@@ -40,7 +40,7 @@ class ZabbixManager
       group_ids = collection_ids(user_group_ids, "user_group_ids")
       users = collection_ids(user_ids, "user_ids", allow_empty: true)
       membership = api_version >= Gem::Version.new("6.0") ?
-        { users: users.map { |id| { userid: id } } } : { userids: users }
+                     { users: users.map { |id| { userid: id } } } : { userids: users }
       result = @client.api_request(
         method: "usergroup.update",
         params: group_ids.map { |id| membership.merge(usrgrpid: id) }

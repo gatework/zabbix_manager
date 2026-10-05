@@ -73,7 +73,9 @@ class ZabbixManager
 
       normalized_ids([id])
 
-      current = dump_by_id(key.to_sym => id).find { |item| item.fetch(key).to_s == id.to_s }
+      current = response_objects(dump_by_id(key.to_sym => id)).find do |item|
+        response_identifier(item[key]) == id.to_i
+      end
       return id.to_i if current && attributes_match?(current, attributes)
 
       response_id(update_raw([attributes]), expected: [id])
@@ -83,7 +85,7 @@ class ZabbixManager
     # @param data [Hash] 包含 identify 指定的业务标识
     # @return [Array<Hash>]
     def get_full_data(data)
-      get_raw(filter: identity_filter(data), output: "extend")
+      response_objects(get_raw(filter: identity_filter(data), output: "extend"))
     end
 
     # 按对象 ID 查询完整对象。
@@ -94,13 +96,16 @@ class ZabbixManager
       id = attributes[key.to_sym]
       raise Invalid, "#{key} is required" if id.blank?
 
-      get_raw(filter: { key.to_sym => id }, output: "extend")
+      response_objects(get_raw(filter: { key.to_sym => id }, output: "extend"))
     end
 
     # @return [Hash] 业务标识到原生字符串 ID 的映射
     # @raise [Conflict] 多个资源具有相同业务标识
     def all
-      get_raw(output: "extend").each_with_object({}) do |item, result|
+      response_objects(get_raw(output: "extend")).each_with_object({}) do |item, result|
+        response_identifier(item[key])
+        raise ProtocolError, "invalid #{method_name} response: #{identify} is missing" unless item.key?(identify)
+
         name = item.fetch(identify)
         raise Conflict, "multiple #{method_name} objects share the same identity" if result.key?(name)
 
@@ -116,7 +121,12 @@ class ZabbixManager
       name = attributes[identify.to_sym]
       raise Invalid, "#{identify} not supplied in call to get_id" if name.nil?
 
-      matches = get_raw(filter: attributes, output: [key, identify]).select do |item|
+      rows = response_objects(get_raw(filter: attributes, output: [key, identify]))
+      rows.each do |item|
+        response_identifier(item[key])
+        raise ProtocolError, "invalid #{method_name} response: #{identify} is missing" unless item.key?(identify)
+      end
+      matches = rows.select do |item|
         item[identify].to_s == name.to_s
       end
       raise Conflict, "multiple #{method_name} objects match the requested identity" if matches.length > 1
@@ -162,6 +172,23 @@ class ZabbixManager
     end
 
     private
+
+    # 高层查询必须区分空结果与损坏的响应；原生 get_raw 保持透传。
+    def response_objects(result)
+      unless result.is_a?(Array) && result.all? { |object| object.is_a?(Hash) }
+        raise ProtocolError, "invalid #{method_name} response: expected an array of objects"
+      end
+
+      result
+    end
+
+    # 单对象查询边界不能接受 ID 集合、布尔值或浮点数。
+    def positive_id_attribute(value, name)
+      id = integer_attribute(value, name)
+      raise Invalid, "#{name} must be a positive integer" unless id.positive?
+
+      id
+    end
 
     def validate_boolean!(value, name)
       raise Invalid, "#{name} must be true or false" unless value == true || value == false

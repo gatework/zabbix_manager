@@ -108,6 +108,7 @@ class ZabbixManager
 
     # 显式主机过滤和响应归属检查保证外部 itemid 不能越过查询边界。
     def items_for_host(hostid, ids)
+      requested_ids = ids.to_h { |id| [id, true] }
       rows = @manager.query(method: "item.get", params: {
                               hostids: [hostid], itemids: ids, monitored: true,
                               output: %w[itemid hostid name units value_type]
@@ -115,7 +116,7 @@ class ZabbixManager
       response_rows!(rows, "item.get").each_with_object({}) do |item, result|
         id = response_integer!(item["itemid"], "itemid", positive: true).to_s
         owner = response_integer!(item["hostid"], "hostid", positive: true).to_s
-        unless ids.include?(id) && owner == hostid && !result.key?(id)
+        unless requested_ids.key?(id) && owner == hostid && !result.key?(id)
           raise ProtocolError, "item.get returned unexpected or duplicate item ownership"
         end
         unless item["name"].is_a?(String) && item["units"].is_a?(String)

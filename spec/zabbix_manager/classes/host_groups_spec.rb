@@ -35,7 +35,8 @@ describe "ZabbixManager::HostGroups" do
       ).and_return("groupids" => ["11"])
 
       expect(actions_mock.get_or_create_host_groups(["Core", "Edge", "Core"])).to eq(
-        [{ groupid: "10" }, { groupid: "11" }]
+        [{ groupid: "10" },
+         { groupid: "11" }]
       )
     end
   end

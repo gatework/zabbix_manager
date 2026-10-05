@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## 6.0.1 (2026-10-05)
+
+* Discover batch item keys once per host and validate returned ownership, identities and duplicate targets before writes.
+* Snapshot item, interface and trigger definitions; reject non-scalar or non-positive IDs in single-host operations.
+* Report malformed high-level resource query responses as ProtocolError so batch reconciliation can isolate discovery failures.
+* Correlate request logs by request_id, suppress rejected method text, and avoid tag/serialization overhead for disabled severities.
+* Validate method encodings, Bearer-compatible tokens and logger severity setters before use while retaining Unicode password authentication.
+
+* Filter native SNMPv3 authentication/privacy passphrases and complete escaped quoted credentials in diagnostic logs.
+* Snapshot line definitions before discovery so caller mutations cannot change validated interfaces, identities or trigger attributes.
+* Use an ID index for traffic metadata ownership checks, avoiding quadratic lookups while preserving query order and missing-item states.
+* Correct Ruby layout violations to restore the existing RuboCop gate.
+
 ## 6.0.0 (2026-10-01)
 
 * Fix role ID queries and host-scoped value map identities, keeping immutable host fields out of updates.

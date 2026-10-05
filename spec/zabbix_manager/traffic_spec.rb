@@ -55,6 +55,18 @@ RSpec.describe ZabbixManager::Traffic do
       .to eq([[100, 0, 1], [110, 1, 2], [110, 9, 3]])
   end
 
+  it "preserves request order, deduplicates IDs and reports missing entries in a large metadata collection" do
+    ids = (2..2001).to_a.reverse
+    metadata.replace(ids.drop(1).reverse.map { |id| item(id.to_s, value_type: "1") })
+    expect(manager).not_to receive(:query).with(method: "history.get", params: anything)
+
+    result = query(itemids: ids + [ids.last])[:series]
+
+    expect(result.map { |entry| entry[:itemid] }).to eq(ids.map(&:to_s))
+    expect(result.first[:status]).to eq(:unavailable)
+    expect(result.drop(1)).to all(include(status: :unsupported))
+  end
+
   it "retains unsigned integer precision beyond floating-point capacity" do
     allow(manager).to receive(:query).with(method: "history.get", params: anything)
                                      .and_return([history(200, "18446744073709551615")])

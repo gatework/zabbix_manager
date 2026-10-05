@@ -89,9 +89,9 @@ zabbix = ZabbixManager.connect(
 )
 ```
 
-Logging uses `ActiveSupport::Logger` and `ActiveSupport::TaggedLogging`; structured credential filtering uses `ActiveSupport::ParameterFilter`. Pass `log_level: :info` to create a logger on standard error, or inject your application's logger. Logging is disabled unless one of these options is supplied, and logging failures do not change API outcomes.
+Logging uses `ActiveSupport::Logger` and `ActiveSupport::TaggedLogging`; structured credential filtering uses `ActiveSupport::ParameterFilter`. Pass `log_level: :info` to create a logger on standard error, or inject your application's logger. Logging is disabled unless one of these options is supplied, and logging failures do not change API outcomes. Request lifecycle events include a per-client `request_id` for correlation; request parameters and rejected method text are never logged. Disabled log severities skip tag construction and serialization. API tokens must contain printable ASCII characters without whitespace; username/password authentication continues to support Unicode.
 
-Passwords, API tokens, authorization values, cookies, and session IDs are filtered. Request parameters and response bodies are not logged. API exceptions expose the server error code and request ID, without remote messages or data that might echo arbitrary secrets. Malformed or mismatched JSON-RPC responses and invalid mutation ID receipts raise `ProtocolError < TransportError`: a write may already have happened, so it must not be blindly replayed.
+Passwords, API tokens, SNMPv3 authentication/privacy passphrases, authorization values, cookies, and session IDs are filtered. Quoted diagnostic credentials are filtered as complete values, including escaped quotes and backslashes. Request parameters and response bodies are not logged. API exceptions expose the server error code and request ID, without remote messages or data that might echo arbitrary secrets. Malformed or mismatched JSON-RPC responses and invalid mutation ID receipts raise `ProtocolError < TransportError`: a write may already have happened, so it must not be blindly replayed.
 
 HTTPS certificate verification is disabled by default as required by this project. Set `verify_ssl: true` (and optionally `ca_file:`) to enable peer verification.
 
@@ -232,6 +232,8 @@ Invalid caller input raises `ZabbixManager::Invalid`, ambiguous remote ownership
 
 `traffic.series` reads explicit item IDs; `traffic.for_interface` discovers both interface directions. Both expose missing data and query truncation, preserve numeric precision, and keep raw history separate from hourly trends. They never substitute zero or a stale last value for missing samples.
 
+Device and line definitions are copied before validation and discovery. Changes to caller-owned strings or nested fields during reconciliation do not alter the validated definition.
+
 Multiword resource accessors use Ruby snake_case: `host_groups`, `host_interfaces`, `http_tests`, `media_types`, `proxy_groups`, `user_groups`, `user_macros`, `value_maps`, and `discovery_rules`.
 
 The focused modules expose explicit operations:
@@ -243,7 +245,10 @@ The focused modules expose explicit operations:
 * `user_groups.replace_users`, `user_groups.replace_host_group_permissions`
 * `host_interfaces.for_host`, `host_interfaces.reconcile_for_host`, `host_interfaces.delete_many`
 * `items.for_host`, `items.upsert_by_key`, `items.upsert_many`, `items.set_status`, `items.delete_many`
+
 * `triggers.for_host`, `triggers.upsert_for_host`, `triggers.add_dependencies`, `triggers.replace_dependencies`, `triggers.set_status`, `triggers.delete_many`
+
+`items.upsert_many` discovers existing keys once per host before any write, then preserves input write order. Item and interface batch definitions are copied before discovery, including nested strings. Single-host helpers require a positive integer `hostid` or its decimal string representation. Identity lookup and batch helpers reject malformed query containers or required IDs with `ProtocolError`; `get_raw` preserves native response pass-through.
 
 
 ## Supported Ruby Versions

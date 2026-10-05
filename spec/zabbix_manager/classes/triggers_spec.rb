@@ -41,7 +41,8 @@ RSpec.describe ZabbixManager::Triggers do
       .with(method: "trigger.get", params: hash_including(hostids: 101))
       .and_return([{ "triggerid" => "301" }])
     allow(client).to receive(:api_request)
-      .with(method: "trigger.update", params: hash_including(triggerid: "301", expression: "last(/r/loss)>5"))
+      .with(method: "trigger.update", params: hash_including(triggerid: "301",
+                                                             expression: "last(/r/loss)>5"))
       .and_return("triggerids" => ["301"])
 
     expect(

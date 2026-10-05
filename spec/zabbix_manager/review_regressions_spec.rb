@@ -102,9 +102,10 @@ RSpec.describe "审查发现的资源与监控边界" do
     allow(client).to receive(:api_request) do |method:, params:|
       raise "unexpected write #{method}" unless method == "item.get"
 
-      key = params.fetch(:filter).fetch(:key_)
-      [{ "itemid" => key.include?(".in[") ? "11" : "12", "hostid" => "1", "key_" => key,
-         "name" => key, "type" => "0", "value_type" => "3", "units" => "bytes", "preprocessing" => [] }]
+      Array(params.fetch(:filter).fetch(:key_)).map do |key|
+        { "itemid" => key.include?(".in[") ? "11" : "12", "hostid" => "1", "key_" => key,
+          "name" => key, "type" => "0", "value_type" => "3", "units" => "bytes", "preprocessing" => [] }
+      end
     end
     expect do
       manager.monitoring.reconcile_interface(
@@ -122,10 +123,11 @@ RSpec.describe "审查发现的资源与监控边界" do
       case method
       when "host.get" then [{ "hostid" => "1", "host" => "router", "name" => "router" }]
       when "item.get"
-        key = params.fetch(:filter).fetch(:key_)
-        [{ "itemid" => key.include?(".in[") ? "11" : "12", "hostid" => "1", "key_" => key,
-           "name" => key, "type" => "0", "value_type" => "3", "units" => "bps",
-           "preprocessing" => preprocessing }]
+        Array(params.fetch(:filter).fetch(:key_)).map do |key|
+          { "itemid" => key.include?(".in[") ? "11" : "12", "hostid" => "1", "key_" => key,
+            "name" => key, "type" => "0", "value_type" => "3", "units" => "bps",
+            "preprocessing" => preprocessing }
+        end
       when "item.update"
         writes << params
         { "itemids" => [params.fetch(:itemid)] }

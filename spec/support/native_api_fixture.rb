@@ -111,7 +111,7 @@ class NativeApiFixture
       tags = params.fetch("tags", []).all? do |filter|
         record.fetch("tags", []).any? do |tag|
           tag["tag"] == filter["tag"] && (filter["operator"].to_i == 1 ? tag["value"] == filter["value"] :
-            tag["value"].include?(filter["value"]))
+                                            tag["value"].include?(filter["value"]))
         end
       end
       scope && filters && tags && (!params["monitored"] || record["status"] == "0")

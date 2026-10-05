@@ -67,7 +67,8 @@ RSpec.describe ZabbixManager::Resource do
 
   it "creates an absent object through the actual API boundary" do
     expect(client).to receive(:api_request)
-      .with(method: "hostgroup.get", params: { filter: { name: "Routers" }, output: %w[groupid name] })
+      .with(method: "hostgroup.get", params: { filter: { name: "Routers" },
+                                               output: %w[groupid name] })
       .and_return([])
     expect(client).to receive(:api_request)
       .with(method: "hostgroup.create", params: [{ name: "Routers" }]).and_return("groupids" => ["1"])

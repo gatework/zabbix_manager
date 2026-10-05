@@ -12,6 +12,9 @@ class ZabbixManager
     SUPPORTED_MAJOR_VERSIONS = (4..7)
     UNAUTHENTICATED_METHODS = %w[apiinfo.version user.login].freeze
     UPSERT_MUTEX_STRIPES = 64
+    LOG_LEVELS = { debug: Logger::DEBUG, info: Logger::INFO, warn: Logger::WARN,
+                   error: Logger::ERROR, fatal: Logger::FATAL, unknown: Logger::UNKNOWN }.freeze
+    private_constant :LOG_LEVELS
 
     attr_reader :options, :logger, :api_version
 
@@ -54,16 +57,20 @@ class ZabbixManager
     # @raise [ApiError] 服务器明确拒绝请求
     # @raise [TransportError, ProtocolError] 未收到能够确认结果的有效响应
     def api_request(method:, params: {})
+      method = method.dup.freeze if method.is_a?(String)
       validate_request!(method, params)
       started_at = monotonic_time
       message = request_message(method, params)
-      log(:debug, "request.started", method: method)
+      log(:debug, "request.started", method: method, request_id: message[:id])
       body = @transport.request(JSON.generate(message), bearer_token: bearer_token_for(method))
       result = parse_response(body, message.fetch(:id))
-      log(:info, "request.completed", method: method, duration_ms: elapsed_ms(started_at))
+      log(:info, "request.completed", method: method, request_id: message[:id], duration_ms: elapsed_ms(started_at))
       result
     rescue StandardError => error
-      log(:warn, "request.failed", method: method, duration_ms: elapsed_ms(started_at), error: error.class.name)
+      if started_at
+        log(:warn, "request.failed", method: method, request_id: message&.fetch(:id),
+                                     duration_ms: elapsed_ms(started_at), error: error.class.name)
+      end
       raise
     end
 
@@ -91,6 +98,9 @@ class ZabbixManager
     # @return [Object, nil] 日志返回值；日志关闭或失败时返回 nil
     def log(level, event, data = {})
       return unless @logger
+
+      severity = LOG_LEVELS[level]
+      return if severity && @logger.respond_to?(:level) && @logger.level > severity
 
       @logger.tagged("zabbix_manager") do
         @logger.public_send(level) { JSON.generate(LogSanitizer.sanitize(data.merge(event: event))) }
@@ -140,7 +150,9 @@ class ZabbixManager
     end
 
     def validate_request!(method, params)
-      unless method.is_a?(String) && method.match?(/\A[a-z][a-z0-9_]*\.[a-z][a-zA-Z0-9_]*\z/)
+      valid_method = method.is_a?(String) && method.valid_encoding? && method.ascii_only? &&
+                     method.match?(/\A[a-z][a-z0-9_]*\.[a-z][a-zA-Z0-9_]*\z/)
+      unless valid_method
         raise Invalid, "method must be a Zabbix API method name"
       end
       raise Invalid, "params must be a Hash or Array" unless params.is_a?(Hash) || params.is_a?(Array)

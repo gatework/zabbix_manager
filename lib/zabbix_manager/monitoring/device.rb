@@ -213,8 +213,9 @@ class ZabbixManager
 
         @attributes[:macros] = Validation.array!(@attributes[:macros], "macros").map do |macro|
           value = Validation.hash!(macro, "macro")
-          raise Invalid, "macros accept macro, value, type and description" if
-            (value.keys - %i[macro value type description]).any?
+          if (value.keys - %i[macro value type description]).any?
+            raise Invalid, "macros accept macro, value, type and description"
+          end
           unless value[:macro].is_a?(String) && value[:macro].match?(/\A\{\$[^{}\r\n]+\}\z/)
             raise Invalid, "macro name must use {$NAME} syntax"
           end

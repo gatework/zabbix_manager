@@ -49,7 +49,8 @@ RSpec.describe "Executable business examples" do
       expect(context.local_variable_get(:receipt)).to include(hostid: 101, enabled: true)
     when 1
       expect(host("router-01")["tags"]).to contain_exactly(
-        { "tag" => "operator", "value" => "noc" }, { "tag" => "service", "value" => "core" }
+        { "tag" => "operator",
+          "value" => "noc" }, { "tag" => "service", "value" => "core" }
       )
       expect(context.local_variable_get(:second)[:managed]).to include(tag_names: ["service"], group_ids: ["20"])
     when 2

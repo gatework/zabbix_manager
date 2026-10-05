@@ -36,7 +36,7 @@ RSpec.describe ZabbixManager::UserGroups do
 
       it "uses the version's membership schema and returns every updated group" do
         membership = membership_field == :users ?
-          { users: [{ userid: "12" }] } : { userids: ["12"] }
+                       { users: [{ userid: "12" }] } : { userids: ["12"] }
         expect(client).to receive(:api_request).with(
           method: "usergroup.update", params: [membership.merge(usrgrpid: "4"), membership.merge(usrgrpid: "5")]
         ).and_return("usrgrpids" => %w[4 5])

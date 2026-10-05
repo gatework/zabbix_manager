@@ -114,6 +114,55 @@ RSpec.describe ZabbixManager::Client do
     end
   end
 
+  describe "request diagnostics" do
+    it "does not log rejected method text or contact the transport" do
+      output = StringIO.new
+      client = build_client(logger: Logger.new(output))
+      output.truncate(0)
+      output.rewind
+      expect(transport).not_to receive(:request)
+
+      expect { client.api_request(method: "unlabeled-secret") }.to raise_error(ZabbixManager::Invalid)
+
+      expect(output.string).not_to include("unlabeled-secret")
+    end
+
+    ["host.\xff".dup.force_encoding("UTF-8"), "host.get".encode("UTF-16LE")].each do |method|
+      it "rejects incompatible method encoding with a stable input error" do
+        client = build_client
+        expect(transport).not_to receive(:request)
+
+        expect { client.api_request(method: method) }.to raise_error(ZabbixManager::Invalid)
+      end
+    end
+
+    it "correlates started, completed and failed events with their JSON-RPC request IDs" do
+      output = StringIO.new
+      logger = Logger.new(output)
+      logger.level = Logger::DEBUG
+      client = build_client(logger: logger)
+      output.truncate(0)
+      output.rewind
+      allow(transport).to receive(:request).and_return(response([], id: 2))
+      client.api_request(method: "host.get")
+      allow(transport).to receive(:request).and_raise(ZabbixManager::TransportError, "failed")
+      expect { client.api_request(method: "host.get") }.to raise_error(ZabbixManager::TransportError)
+      events = output.string.lines.map { |line| JSON.parse(line.delete_prefix("[zabbix_manager] ")) }
+
+      expected = [["request.started", 2], ["request.completed", 2], ["request.started", 3], ["request.failed", 3]]
+      expect(events.map { |event| event.values_at("event", "request_id") }).to eq(expected)
+      expect(output.string).not_to include("api-secret")
+    end
+
+    it "skips tag construction and data serialization for a disabled log severity" do
+      client = build_client(logger: Logger.new(StringIO.new), log_level: Logger::WARN)
+      expect(client.logger).not_to receive(:tagged)
+      expect(ZabbixManager::LogSanitizer).not_to receive(:sanitize)
+
+      client.log(:debug, "disabled", password: "secret")
+    end
+  end
+
   describe "version compatibility" do
     it "accepts Zabbix 4 through 7 and caches the detected version" do
       client = build_client(version: "7.4.0")
@@ -141,6 +190,20 @@ RSpec.describe ZabbixManager::Client do
       client.log(:debug, "custom", authorization: "Bearer secret", password: "secret")
       expect(output.string).not_to include("secret")
       expect(output.string).to include("[FILTERED]")
+    end
+
+    it "filters native SNMPv3 credentials and escaped secrets through the actual logger" do
+      output = StringIO.new
+      client = build_client(logger: Logger.new(output))
+      details = { authpassphrase: "auth-secret", privpassphrase: "priv-secret" }
+      diagnostic = JSON.generate(password: "left\"right-secret")
+
+      client.log(:info, "custom", details: details, diagnostic: diagnostic,
+                                  headers: JSON.generate(authorization: "head,tail-secret"))
+
+      expect(output.string).to include("custom", "[FILTERED]")
+      expect(output.string).not_to include("auth-secret", "priv-secret", "right-secret", "tail-secret")
+      expect(details).to include(authpassphrase: "auth-secret", privpassphrase: "priv-secret")
     end
 
     it "从检查摘要中移除 URL 和代理地址的 userinfo 与查询串" do
