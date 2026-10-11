@@ -72,13 +72,13 @@ RSpec.describe ZabbixManager::HttpTransport do
     expect(http.finish_count).to eq(1)
   end
 
-  it "keeps HTTPS certificate verification disabled by default" do
+  it "verifies HTTPS certificates by default" do
     transport = described_class.new(url: "https://zabbix.test/api_jsonrpc.php", no_proxy: true)
 
     transport.request("{}")
 
     expect(http.use_ssl).to be(true)
-    expect(http.verify_mode).to eq(OpenSSL::SSL::VERIFY_NONE)
+    expect(http.verify_mode).to eq(OpenSSL::SSL::VERIFY_PEER)
   end
 
   it "allows callers to opt into certificate verification" do

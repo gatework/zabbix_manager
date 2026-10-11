@@ -26,7 +26,7 @@ class ZabbixManager
     # @return [Hash] Web 场景唯一查询条件
     def identity_filter(data)
       attributes = data.deep_symbolize_keys
-      { name: attributes.fetch(:name), hostid: attributes.fetch(:hostid) }
+      { name: attributes.fetch(:name), hostid: normalized_id_attribute(attributes.fetch(:hostid), "hostid") }
     end
   end
 end

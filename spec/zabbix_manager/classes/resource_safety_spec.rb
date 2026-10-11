@@ -52,10 +52,8 @@ RSpec.describe "Resource mutation boundaries" do
 
   it "refuses to select an arbitrary host macro when its identity is ambiguous" do
     macros = ZabbixManager::UserMacros.new(client)
-    allow(client).to receive(:api_request).and_return([
-                                                        { "hostmacroid" => "10", "macro" => "{$TOKEN}" },
-                                                        { "hostmacroid" => "11", "macro" => "{$TOKEN}" }
-                                                      ])
+    records = %w[10 11].map { |id| { "hostmacroid" => id, "macro" => "{$TOKEN}", "hostid" => "1" } }
+    allow(client).to receive(:api_request).and_return(records)
 
     expect { macros.get_id(macro: "{$TOKEN}", hostid: 1) }.to raise_error(ZabbixManager::Conflict)
   end

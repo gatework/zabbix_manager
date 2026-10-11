@@ -71,7 +71,7 @@ class ZabbixManager
       id = attributes[key.to_sym]
       raise Invalid, "#{key} is required" if id.blank?
 
-      normalized_ids([id])
+      id = attributes[key.to_sym] = normalized_id_attribute(id, key)
 
       current = response_objects(dump_by_id(key.to_sym => id)).find do |item|
         response_identifier(item[key]) == id.to_i
@@ -96,6 +96,7 @@ class ZabbixManager
       id = attributes[key.to_sym]
       raise Invalid, "#{key} is required" if id.blank?
 
+      id = normalized_id_attribute(id, key)
       response_objects(get_raw(filter: { key.to_sym => id }, output: "extend"))
     end
 
@@ -188,6 +189,12 @@ class ZabbixManager
       raise Invalid, "#{name} must be a positive integer" unless id.positive?
 
       id
+    end
+
+    # 同一 ID 的正号和前导零只在输入边界出现，查询、写入和锁使用统一身份。
+    def normalized_id_attribute(value, name)
+      id = positive_id_attribute(value, name)
+      value.is_a?(Integer) ? id : id.to_s
     end
 
     def validate_boolean!(value, name)

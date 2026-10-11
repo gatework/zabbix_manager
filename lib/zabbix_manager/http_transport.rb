@@ -203,12 +203,12 @@ class ZabbixManager
       ]
     end
 
-    # 配置 HTTPS；证书校验默认关闭，按调用方选项开启。
+    # 配置 HTTPS；证书校验默认开启，仅在显式传入 false 时关闭。
     def configure_tls(http)
       return unless @uri.scheme == "https"
 
       http.use_ssl = true
-      http.verify_mode = @options[:verify_ssl] == true ? OpenSSL::SSL::VERIFY_PEER : OpenSSL::SSL::VERIFY_NONE
+      http.verify_mode = @options[:verify_ssl] == false ? OpenSSL::SSL::VERIFY_NONE : OpenSSL::SSL::VERIFY_PEER
       http.ca_file = @options[:ca_file] if @options[:ca_file]
     end
 

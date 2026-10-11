@@ -93,7 +93,7 @@ Logging uses `ActiveSupport::Logger` and `ActiveSupport::TaggedLogging`; structu
 
 Passwords, API tokens, SNMPv3 authentication/privacy passphrases, authorization values, cookies, and session IDs are filtered. Quoted diagnostic credentials are filtered as complete values, including escaped quotes and backslashes. Request parameters and response bodies are not logged. API exceptions expose the server error code and request ID, without remote messages or data that might echo arbitrary secrets. Malformed or mismatched JSON-RPC responses and invalid mutation ID receipts raise `ProtocolError < TransportError`: a write may already have happened, so it must not be blindly replayed.
 
-HTTPS certificate verification is disabled by default as required by this project. Set `verify_ssl: true` (and optionally `ca_file:`) to enable peer verification.
+HTTPS certificate verification is enabled by default. Use `ca_file:` for a private certificate authority. An explicit `verify_ssl: false` disables verification and emits a warning when logging is enabled.
 
 Zabbix 7 API-token requests need the `Authorization` header, so they cannot share that header with HTTP Basic authentication. The client rejects that combination instead of silently overwriting either credential.
 
@@ -123,7 +123,7 @@ zabbix.monitoring.reconcile_line(
 )
 ```
 
-The lookup accepts full and abbreviated interface names such as `Ten-GigabitEthernet1/0/49` and `Te1/0/49`. It refuses zero or multiple direction matches instead of selecting an item by response order. Trigger ownership comes from the managed identity tag; matching descriptions alone never adopt unrelated triggers.
+The lookup accepts full and abbreviated interface names such as `Ten-GigabitEthernet1/0/49` and `Te1/0/49`. It refuses zero or multiple direction matches instead of selecting an item by response order. Trigger ownership requires the requested managed identity and a unique matching `managed_by` tag. Contradictory `line_id` tags are rejected. Interface workflows check ownership before item writes, and trigger upserts check it again before updates; matching descriptions alone never adopt unrelated triggers.
 
 Use `reconcile_lines(lines)` for imports. It reuses host and item discovery results within the batch, avoiding a full `item.get` scan for every line.
 
@@ -232,7 +232,7 @@ Invalid caller input raises `ZabbixManager::Invalid`, ambiguous remote ownership
 
 `traffic.series` reads explicit item IDs; `traffic.for_interface` discovers both interface directions. Both expose missing data and query truncation, preserve numeric precision, and keep raw history separate from hourly trends. They never substitute zero or a stale last value for missing samples.
 
-Device and line definitions are copied before validation and discovery. Changes to caller-owned strings or nested fields during reconciliation do not alter the validated definition.
+Device, line and interface definitions are copied before validation and discovery. Changes to caller-owned strings or nested fields during reconciliation do not alter the validated definition.
 
 Multiword resource accessors use Ruby snake_case: `host_groups`, `host_interfaces`, `http_tests`, `media_types`, `proxy_groups`, `user_groups`, `user_macros`, `value_maps`, and `discovery_rules`.
 
@@ -248,7 +248,7 @@ The focused modules expose explicit operations:
 
 * `triggers.for_host`, `triggers.upsert_for_host`, `triggers.add_dependencies`, `triggers.replace_dependencies`, `triggers.set_status`, `triggers.delete_many`
 
-`items.upsert_many` discovers existing keys once per host before any write, then preserves input write order. Item and interface batch definitions are copied before discovery, including nested strings. Single-host helpers require a positive integer `hostid` or its decimal string representation. Identity lookup and batch helpers reject malformed query containers or required IDs with `ProtocolError`; `get_raw` preserves native response pass-through.
+`items.upsert_many` discovers existing keys once per host before any write, then preserves input write order. Item and interface batch definitions are copied before discovery, including nested strings. Single-host helpers require a positive integer `hostid` or its decimal string representation. Equivalent resource IDs are normalized before locking, queries, writes and receipt checks. Identity lookup and batch helpers reject malformed query containers or required IDs with `ProtocolError`; `get_raw` preserves native response pass-through.
 
 
 ## Supported Ruby Versions

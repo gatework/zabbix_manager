@@ -9,7 +9,7 @@ RSpec.describe ZabbixManager::UserMacros do
   it "queries a host macro within its explicit host boundary" do
     expect(client).to receive(:api_request).with(
       method: "usermacro.get", params: { hostids: 1, filter: { macro: "{$TOKEN}" } }
-    ).and_return([{ "hostmacroid" => "10" }])
+    ).and_return([{ "hostmacroid" => "10", "macro" => "{$TOKEN}", "hostid" => "1" }])
 
     expect(macros.get_id("hostid" => 1, "macro" => "{$TOKEN}")).to eq(10)
   end
@@ -22,7 +22,7 @@ RSpec.describe ZabbixManager::UserMacros do
   it "does not add a host filter to global macro lookups" do
     expect(client).to receive(:api_request).with(
       method: "usermacro.get", params: { globalmacro: true, filter: { macro: "{$TOKEN}" } }
-    ).and_return([{ "globalmacroid" => "20" }])
+    ).and_return([{ "globalmacroid" => "20", "macro" => "{$TOKEN}" }])
 
     expect(macros.get_id_global(macro: "{$TOKEN}")).to eq(20)
   end
@@ -33,7 +33,8 @@ RSpec.describe ZabbixManager::UserMacros do
   end
 
   it "rejects ambiguous global macro identities" do
-    allow(client).to receive(:api_request).and_return([{ "globalmacroid" => "20" }, { "globalmacroid" => "21" }])
+    records = %w[20 21].map { |id| { "globalmacroid" => id, "macro" => "{$TOKEN}" } }
+    allow(client).to receive(:api_request).and_return(records)
     expect { macros.get_id_global(macro: "{$TOKEN}") }.to raise_error(ZabbixManager::Conflict)
   end
 
@@ -41,7 +42,7 @@ RSpec.describe ZabbixManager::UserMacros do
     data = { "hostid" => 1, "macro" => "{$TOKEN}", "value" => "new" }
     expect(client).to receive(:api_request).with(
       method: "usermacro.get", params: { hostids: 1, filter: { macro: "{$TOKEN}" } }
-    ).and_return([{ "hostmacroid" => "10" }])
+    ).and_return([{ "hostmacroid" => "10", "macro" => "{$TOKEN}", "hostid" => "1" }])
     expect(client).to receive(:api_request).with(
       method: "usermacro.update", params: { hostid: 1, macro: "{$TOKEN}", value: "new", hostmacroid: 10 }
     ).and_return("hostmacroids" => ["10"])
@@ -80,7 +81,7 @@ RSpec.describe ZabbixManager::UserMacros do
   it "updates a global macro using its global ID" do
     expect(client).to receive(:api_request).with(
       method: "usermacro.get", params: { globalmacro: true, filter: { macro: "{$TOKEN}" } }
-    ).and_return([{ "globalmacroid" => "20" }])
+    ).and_return([{ "globalmacroid" => "20", "macro" => "{$TOKEN}" }])
     expect(client).to receive(:api_request).with(
       method: "usermacro.updateglobal", params: { globalmacroid: 20, macro: "{$TOKEN}", value: "new" }
     ).and_return("globalmacroids" => ["20"])

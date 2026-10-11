@@ -121,12 +121,19 @@ class ZabbixManager
     end
 
     # 接口更新只增改，不自动删除远端对象；所有本地校验在首个写入之前完成。
+    # 快照调用方输入，再与设备和线路工作流共享实例互斥锁。
     # @param attributes [Hash] host、interface、按名称分组的原生 items 和 thresholds
     # @return [Hash] hostid、interface、itemids 和 triggerids
     # @raise [Invalid, Conflict] 输入、量纲或资源归属无效
     # @raise [ApiError, TransportError] 远端失败；已经确认的早期步骤不会被回滚
     def reconcile_interface(attributes)
-      input = Validation.hash!(attributes, "interface monitoring")
+      input = Validation.hash!(attributes, "interface monitoring").deep_dup
+      @workflow_mutex.synchronize { apply_interface(input) }
+    end
+
+    private
+
+    def apply_interface(input)
       input.assert_valid_keys(:host, :interface, :items, :thresholds)
       supplied_host = Validation.hash!(input[:host], "host")
       Validation.host!(supplied_host)
@@ -140,6 +147,14 @@ class ZabbixManager
         validate_items: false
       )
       host = resolve_host(supplied_host, {})
+      triggers.each_value do |trigger|
+        ownership = { managed_by: "zabbix_manager" }
+        line_tag = trigger[:tags].find { |tag| tag[:tag] == "line_id" }
+        ownership[:line_id] = line_tag[:value] if line_tag
+        @manager.triggers.find_managed_for_host(
+          hostid: host[:hostid], managed_key: trigger[:managed_key], **ownership
+        )
+      end
       ids = @manager.items.upsert_many(items.values) do |effective|
         # 读取已有配置后再次校验最终量纲和数值类型，仍在首个 item 写入之前。
         triggers = @thresholds.prepare_triggers(
@@ -151,8 +166,6 @@ class ZabbixManager
       triggerids = triggers.transform_values { |trigger| @manager.triggers.upsert_for_host(trigger) }
       { hostid: host[:hostid].to_i, interface: interface[:name], itemids: itemids, triggerids: triggerids }
     end
-
-    private
 
     def validate_devices!(devices)
       definitions = Validation.array!(devices, "devices").map { |device| Device.new(device) }

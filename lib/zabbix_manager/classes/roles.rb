@@ -21,7 +21,7 @@ class ZabbixManager
       raise Invalid, "roleid is required" if attributes[:roleid].blank?
       raise Invalid, "rules is required" if attributes[:rules].blank?
 
-      normalized_ids([attributes[:roleid]])
+      attributes[:roleid] = normalized_id_attribute(attributes[:roleid], "roleid")
 
       result = @client.api_request(
         method: "role.update",

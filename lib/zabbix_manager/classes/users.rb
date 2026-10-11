@@ -18,11 +18,13 @@ class ZabbixManager
     # @return [Integer, nil] 首个更新用户的 ID
     def update_medias(data)
       attributes = data.deep_symbolize_keys
-      ids = normalized_ids(attributes.fetch(:userids))
+      ids = Array.wrap(attributes.fetch(:userids)).map { |id| normalized_id_attribute(id, "userid") }
+      normalized_ids(ids)
+      ids.uniq!(&:to_s)
       media_field = Gem::Version.new(@client.api_version) >= Gem::Version.new("5.4") ? :medias : :user_medias
       result = @client.api_request(
         method: "user.update",
-        params: attributes.fetch(:userids).map do |userid|
+        params: ids.map do |userid|
           { userid: userid, media_field => attributes.fetch(:media) }
         end
       )

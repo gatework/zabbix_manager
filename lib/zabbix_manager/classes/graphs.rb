@@ -76,7 +76,7 @@ class ZabbixManager
     # @return [Hash] 图形唯一查询条件
     def identity_filter(data)
       attributes = data.deep_symbolize_keys
-      { name: attributes.fetch(:name), hostid: attributes.fetch(:hostid) }
+      { name: attributes.fetch(:name), hostid: normalized_id_attribute(attributes.fetch(:hostid), "hostid") }
     end
 
     # 图形所有者由 gitems 确定，hostid 仅用于调用方的身份查询。

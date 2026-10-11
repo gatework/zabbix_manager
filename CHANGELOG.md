@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## 6.0.3 (2026-10-11)
+
+* Enable HTTPS certificate verification by default; use `ca_file:` for private certificate authorities.
+* Freeze the negotiated API version and parse its major component once so authentication cannot drift between requests.
+* Canonicalize resource IDs before queries, writes, receipt checks and upsert locking; deduplicate equivalent user targets.
+* Snapshot interface monitoring definitions and serialize their execution with other monitoring workflows.
+* Verify managed trigger identities and ownership before updates, including interface preflight before item writes; reject contradictory line tags during local validation.
+* Validate complete group lookup responses before creating missing groups and verify host/global macro lookup identities.
+
 ## 6.0.2 (2026-10-05)
 
 * Use the repository account name for Gem author metadata.

@@ -26,11 +26,13 @@ class ZabbixManager
     # @raise [TransportError] HTTP 或网络请求失败，可能无法确认远端结果
     # @return [Array<Hash>] 匹配的触发器及其关联对象
     def dump_by_id(data)
+      attributes = data.deep_symbolize_keys
+      id = normalized_id_attribute(attributes[key.to_sym], key)
       @client.api_request(
         method: "trigger.get",
         params: {
           filter: {
-            key.to_sym => data[key.to_sym]
+            key.to_sym => id
           },
           output: "extend",
           selectItems: "extend",
@@ -43,7 +45,7 @@ class ZabbixManager
     # @return [Array<Hash>]
     def for_host(hostid, output: "extend", select_items: nil, select_functions: nil,
                  select_dependencies: nil, select_tags: nil, filter: nil)
-      positive_id_attribute(hostid, "hostid")
+      hostid = normalized_id_attribute(hostid, "hostid")
 
       params = { hostids: hostid, output: output }
       params[:selectItems] = select_items if select_items
@@ -57,7 +59,7 @@ class ZabbixManager
     # 按主机、描述和可选标签查询唯一触发器。
     # @return [Hash, nil]
     def find_for_host(hostid:, description:, tags: nil)
-      positive_id_attribute(hostid, "hostid")
+      hostid = normalized_id_attribute(hostid, "hostid")
       params = {
         hostids: hostid,
         filter: { description: description },
@@ -80,9 +82,13 @@ class ZabbixManager
     # 展开表达式并读取依赖，供不确定写入后的完整期望状态核对。
     # @param hostid [Integer, String] 触发器所属主机
     # @param managed_key [String] 稳定、非秘密的受管身份
+    # @param managed_by [String, nil] 指定时必须与远端唯一管理方一致
+    # @param line_id [String, nil] 指定时拒绝矛盾的远端线路标签；兼容未标记的旧线路
+    # @raise [ProtocolError] 返回标签格式无效或受管身份不匹配
+    # @raise [Conflict] 受管身份不唯一或归属另一管理方、线路
     # @return [Hash, nil]
-    def find_managed_for_host(hostid:, managed_key:)
-      positive_id_attribute(hostid, "hostid")
+    def find_managed_for_host(hostid:, managed_key:, managed_by: nil, line_id: nil)
+      hostid = normalized_id_attribute(hostid, "hostid")
       result = @client.api_request(
         method: "trigger.get",
         params: {
@@ -95,7 +101,10 @@ class ZabbixManager
         }
       )
       response_objects(result)
-      result.each { |trigger| response_identifier(trigger["triggerid"]) }
+      result.each do |trigger|
+        response_identifier(trigger["triggerid"])
+        validate_managed_identity!(trigger, managed_key: managed_key, managed_by: managed_by, line_id: line_id)
+      end
       raise Conflict, "multiple triggers use managed key #{managed_key}" if result.length > 1
 
       result.first
@@ -123,7 +132,7 @@ class ZabbixManager
     # @return [Integer]
     def upsert_for_host(data)
       attributes = data.deep_symbolize_keys.deep_dup
-      positive_id_attribute(attributes[:hostid], "hostid")
+      attributes[:hostid] = normalized_id_attribute(attributes[:hostid], "hostid")
       lock_key = "trigger:#{attributes[:hostid]}:#{attributes[:managed_key] || attributes[:description]}"
       @client.with_upsert_lock(lock_key) { perform_upsert_for_host(attributes) }
     end
@@ -197,7 +206,7 @@ class ZabbixManager
       attributes = data.deep_symbolize_keys
       hostid = attributes.delete(:hostid)
       managed_key = attributes.delete(:managed_key)&.to_s
-      positive_id_attribute(hostid, "hostid")
+      hostid = normalized_id_attribute(hostid, "hostid")
       raise Invalid, "description is required" if attributes[:description].blank?
       raise Invalid, "expression is required" if attributes[:expression].blank?
 
@@ -208,7 +217,10 @@ class ZabbixManager
           tag[:tag].to_s == "zabbix_manager_id" || tag["tag"].to_s == "zabbix_manager_id"
         end
         attributes[:tags] << { tag: "zabbix_manager_id", value: managed_key }
-        current = find_managed_for_host(hostid: hostid, managed_key: managed_key)
+        current = find_managed_for_host(
+          hostid: hostid, managed_key: managed_key,
+          managed_by: desired_tag_value(attributes, "managed_by"), line_id: desired_tag_value(attributes, "line_id")
+        )
       else
         ownership_tags = Array(attributes[:tags]).select do |tag|
           tag[:tag].to_s == "managed_by" || tag["tag"].to_s == "managed_by"
@@ -250,7 +262,10 @@ class ZabbixManager
       delays = @client.options.fetch(:uncertain_write_delays, DEFAULT_UNCERTAIN_WRITE_DELAYS)
       delays.each do |delay|
         sleep(delay) if delay.positive?
-        current = find_managed_for_host(hostid: hostid, managed_key: managed_key)
+        current = find_managed_for_host(
+          hostid: hostid, managed_key: managed_key,
+          managed_by: desired_tag_value(attributes, "managed_by"), line_id: desired_tag_value(attributes, "line_id")
+        )
         if current && recovered_trigger_matches?(current, attributes)
           response_identifier(current["triggerid"])
           return current
@@ -259,6 +274,34 @@ class ZabbixManager
         next
       end
       nil
+    end
+
+    # 原生标签过滤器不能代替本地身份和管理权校验。
+    private def validate_managed_identity!(trigger, managed_key:, managed_by:, line_id:)
+      tags = trigger["tags"]
+      unless tags.is_a?(Array) && tags.all? do |tag|
+        tag.is_a?(Hash) && tag["tag"].is_a?(String) && tag["value"].is_a?(String)
+      end
+        raise ProtocolError, "invalid trigger response: tags must contain string tag and value fields"
+      end
+
+      values = ->(name) { tags.filter_map { |tag| tag["value"] if tag["tag"] == name } }
+      unless values.call("zabbix_manager_id") == [managed_key]
+        raise ProtocolError, "trigger.get returned an unexpected managed key"
+      end
+      if managed_by && values.call("managed_by") != [managed_by]
+        raise Conflict, "trigger managed key belongs to another owner"
+      end
+
+      lines = values.call("line_id")
+      raise Conflict, "trigger managed key belongs to another line" if line_id && lines.any? && lines != [line_id]
+    end
+
+    private def desired_tag_value(attributes, name)
+      values = Array(attributes[:tags]).filter_map { |tag| tag[:value] if tag[:tag] == name }
+      raise Invalid, "#{name} must have one string value" if values.length > 1 || values.any? { |v| !v.is_a?(String) }
+
+      values.first
     end
 
     private def recovered_trigger_matches?(current, attributes)
@@ -281,7 +324,7 @@ class ZabbixManager
 
     # 回查触发器归属，阻止共享高权限令牌跨主机修改。
     private def verify_host_ownership!(hostid, ids)
-      positive_id_attribute(hostid, "hostid")
+      hostid = normalized_id_attribute(hostid, "hostid")
 
       result = @client.api_request(
         method: "trigger.get", params: { hostids: hostid, triggerids: ids, output: ["triggerid"] }

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "spec_helper"
+require "tempfile"
 
 RSpec.describe ZabbixManager::HttpTransport, "over local sockets" do
   let(:listener) { TCPServer.new("127.0.0.1", 0) }
@@ -125,15 +126,19 @@ RSpec.describe ZabbixManager::HttpTransport, "over local sockets" do
         cert.public_key = private_key.public_key
         cert.not_before = Time.now - 60
         cert.not_after = Time.now + 3600
+        factory = OpenSSL::X509::ExtensionFactory.new
+        factory.subject_certificate = cert
+        factory.issuer_certificate = cert
+        cert.add_extension(factory.create_extension("subjectAltName", "IP:127.0.0.1"))
         cert.sign(private_key, OpenSSL::Digest.new("SHA256"))
       end
     end
     let(:private_key) { OpenSSL::PKey::RSA.new(2048) }
-    let(:verify_ssl) { false }
+    let(:tls_options) { {} }
     let(:transport) do
       described_class.new(
         url: "https://127.0.0.1:#{listener.addr[1]}/api_jsonrpc.php",
-        no_proxy: true, verify_ssl: verify_ssl, timeout: 2
+        no_proxy: true, timeout: 2, **tls_options
       )
     end
 
@@ -153,17 +158,35 @@ RSpec.describe ZabbixManager::HttpTransport, "over local sockets" do
       end
     end
 
-    it "honors the project default allowing a self-signed peer" do
-      worker = serve_tls
+    context "with explicit verification opt-out" do
+      let(:tls_options) { { verify_ssl: false } }
 
-      expect(transport.request("{}")).to eq("{}")
-      expect(worker.join(2)).to eq(worker)
-      expect(worker.value).not_to be_a(Exception)
+      it "allows a self-signed peer" do
+        worker = serve_tls
+
+        expect(transport.request("{}")).to eq("{}")
+        expect(worker.join(2)).to eq(worker)
+        expect(worker.value).not_to be_a(Exception)
+      end
     end
 
-    context "with certificate verification enabled" do
-      let(:verify_ssl) { true }
+    it "accepts a trusted private certificate without disabling verification" do
+      Tempfile.create(["zabbix-ca", ".pem"]) do |file|
+        file.write(certificate.to_pem)
+        file.flush
+        trusted = described_class.new(url: "https://127.0.0.1:#{listener.addr[1]}/api_jsonrpc.php",
+                                      no_proxy: true, ca_file: file.path, timeout: 2)
+        worker = serve_tls
 
+        expect(trusted.request("{}")).to eq("{}")
+        expect(worker.join(2)).to eq(worker)
+        expect(worker.value).not_to be_a(Exception)
+      ensure
+        trusted&.close
+      end
+    end
+
+    context "with default certificate verification" do
       it "rejects an untrusted certificate before sending JSON-RPC data" do
         worker = serve_tls
 

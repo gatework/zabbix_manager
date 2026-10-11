@@ -95,7 +95,7 @@ RSpec.describe ZabbixManager::Monitoring::Device do
     @interfaces = [{ "interfaceid" => "71", "type" => "2", "main" => "1", "useip" => "1",
                      "ip" => "192.0.2.9", "dns" => "", "port" => "161" }]
     @hosts = [remote_host(interfaces: @interfaces)]
-    @macros = [{ "hostmacroid" => "81" }]
+    @macros = [{ "hostmacroid" => "81", "hostid" => "42", "macro" => "{$SNMP_COMMUNITY}" }]
 
     described_class.new(definition).reconcile(manager)
 
@@ -195,7 +195,7 @@ RSpec.describe ZabbixManager::Monitoring::Device do
 
   it "preflights every macro identity before writing any macro" do
     @hosts = [remote_host]
-    @macros = [{ "hostmacroid" => "81" }, { "hostmacroid" => "82" }]
+    @macros = %w[81 82].map { |id| { "hostmacroid" => id, "hostid" => "42", "macro" => "{$A}" } }
 
     expect do
       described_class.new(definition.except(:snmp).merge(macros: [{ macro: "{$A}", value: "secret" }]))

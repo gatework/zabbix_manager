@@ -16,7 +16,10 @@ class ZabbixManager
                    error: Logger::ERROR, fatal: Logger::FATAL, unknown: Logger::UNKNOWN }.freeze
     private_constant :LOG_LEVELS
 
-    attr_reader :options, :logger, :api_version
+    attr_reader :options, :logger
+
+    # @return [String] 不可变的已协商版本，认证策略在连接期间保持稳定
+    attr_reader :api_version
 
     # 校验配置后立即查询服务器版本并完成认证。
     # 初始化失败时关闭连接；成功后的客户端生命周期由调用方负责。
@@ -199,7 +202,11 @@ class ZabbixManager
     def validate_api_version!
       match = @api_version.is_a?(String) && @api_version.match(/\A(\d+)\.(\d+)\.(\d+)\z/)
       raise ProtocolError, "Invalid API version response" unless match
-      return if SUPPORTED_MAJOR_VERSIONS.cover?(match[1].to_i)
+
+      # 版本只在初始化时解析，后续请求不重复拆分字符串或改变认证策略。
+      @api_version = @api_version.dup.freeze
+      @api_major_version = match[1].to_i
+      return if SUPPORTED_MAJOR_VERSIONS.cover?(@api_major_version)
       raise ApiError, "Zabbix API version is not supported" unless @settings[:ignore_version]
 
       log(:warn, "version.unsupported", version: @api_version)
@@ -222,11 +229,11 @@ class ZabbixManager
     end
 
     def insecure_https?
-      @transport.uri.scheme == "https" && @settings[:verify_ssl] != true
+      @transport.uri.scheme == "https" && @settings[:verify_ssl] == false
     end
 
     def api_major_version
-      @api_version.to_s.split(".", 2).first.to_i
+      @api_major_version
     end
 
     def bearer_token_for(method)

@@ -24,7 +24,7 @@ class ZabbixManager
     # 查询指定主机的全部接口，可选择同时返回关联监控项。
     # @return [Array<Hash>]
     def for_host(hostid, select_items: nil)
-      positive_id_attribute(hostid, "hostid")
+      hostid = normalized_id_attribute(hostid, "hostid")
 
       params = { hostids: hostid, output: "extend" }
       params[:selectItems] = select_items if select_items
@@ -56,6 +56,7 @@ class ZabbixManager
     # 幂等创建或更新一个主机的接口集合。
     # @return [Array<Integer>]
     def reconcile_for_host(hostid:, interfaces:)
+      hostid = normalized_id_attribute(hostid, "hostid")
       @client.with_upsert_lock("host-interfaces:#{hostid}") do
         plan = plan_for_host(hostid: hostid, interfaces: interfaces)
         apply_plan(hostid: hostid, plan: plan)
@@ -105,6 +106,9 @@ class ZabbixManager
       raise Invalid, "interface must be a hash" unless interface.is_a?(Hash)
 
       attributes = interface.deep_symbolize_keys.deep_dup
+      if attributes.key?(:interfaceid)
+        attributes[:interfaceid] = normalized_id_attribute(attributes[:interfaceid], "interfaceid")
+      end
       if attributes.key?(:type)
         type = integer_attribute(attributes[:type], "interface type")
         raise Invalid, "interface type must be 1, 2, 3, or 4" unless [1, 2, 3, 4].include?(type)
@@ -232,7 +236,8 @@ class ZabbixManager
       endpoint_field = values[:useip].to_i == 1 ? :ip : :dns
       raise Invalid, "interface #{endpoint_field} is required" if values[endpoint_field].blank?
 
-      "endpoint:#{values[:type]}:#{values[:useip]}:#{values[endpoint_field]}:#{values[:port]}"
+      "endpoint:#{integer_attribute(values[:type], 'interface type')}:" \
+        "#{integer_attribute(values[:useip], 'interface useip')}:#{values[endpoint_field]}:#{values[:port]}"
     end
 
     # 更新已属于目标主机的接口。

@@ -115,6 +115,16 @@ RSpec.describe ZabbixManager::Client do
   end
 
   describe "request diagnostics" do
+    it "warns about disabled TLS verification only for an explicit opt-out" do
+      [nil, true, false].each do |verify|
+        output = StringIO.new
+        options = verify.nil? ? {} : { verify_ssl: verify }
+        build_client(logger: Logger.new(output), **options)
+
+        expect(output.string.include?("tls.verification_disabled")).to eq(verify == false)
+      end
+    end
+
     it "does not log rejected method text or contact the transport" do
       output = StringIO.new
       client = build_client(logger: Logger.new(output))
@@ -169,6 +179,17 @@ RSpec.describe ZabbixManager::Client do
 
       expect(client.api_version).to eq("7.4.0")
       expect(transport).to have_received(:request).once
+    end
+
+    it "keeps the negotiated version immutable for subsequent authentication decisions" do
+      client = build_client(version: "7.4.0")
+
+      expect { client.api_version.replace("6.0.0") }.to raise_error(FrozenError)
+      allow(transport).to receive(:request).and_return(response([], id: 2))
+      client.api_request(method: "host.get")
+      body, arguments = RSpec::Mocks.space.proxy_for(transport).messages_arg_list.last
+      expect(JSON.parse(body)).not_to have_key("auth")
+      expect(arguments).to eq(bearer_token: "api-secret")
     end
 
     it "rejects unsupported future versions unless explicitly ignored" do

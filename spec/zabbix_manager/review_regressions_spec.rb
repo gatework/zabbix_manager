@@ -100,6 +100,8 @@ RSpec.describe "审查发现的资源与监控边界" do
       method: "host.get", params: hash_including(filter: { hostid: 1 })
     ).and_return([{ "hostid" => "1", "host" => "router", "name" => "router" }])
     allow(client).to receive(:api_request) do |method:, params:|
+      next [] if method == "trigger.get"
+
       raise "unexpected write #{method}" unless method == "item.get"
 
       Array(params.fetch(:filter).fetch(:key_)).map do |key|

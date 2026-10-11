@@ -11,6 +11,7 @@ RSpec.describe ZabbixManager::Monitoring do
   let(:monitoring) { described_class.new(manager) }
 
   before do
+    allow(triggers).to receive(:find_managed_for_host).and_return(nil)
     allow(client).to receive(:api_request).with(method: "trigger.get", params: anything).and_return([])
     allow(hosts).to receive(:resolve) do |reference|
       found = reference.is_a?(Hash) ? hosts.find_by_id(reference[:hostid]) : hosts.find_by_candidates(reference)
@@ -525,6 +526,93 @@ RSpec.describe ZabbixManager::Monitoring do
           items: { first: { key_: "first", type: 2 }, second: { key_: "second" } }
         )
       end.to raise_error(ZabbixManager::Invalid, /type is required/)
+    end
+  end
+
+  context "interface workflow ownership" do
+    let(:input) do
+      { host: { hostid: 10_101, host: +"router-01" }, interface: { name: +"eth0" },
+        items: { packet_loss: { key_: +"icmppingloss[192.0.2.2]", name: +"Loss", units: "%" } },
+        thresholds: { packet_loss: { high: +"5", recovery: 2 } } }
+    end
+
+    it "snapshots nested input before discovery and effective-item validation" do
+      allow(hosts).to receive(:resolve) do
+        input[:host][:host].replace("other-router")
+        input[:interface][:name].replace("other-interface")
+        input[:items][:packet_loss][:key_].replace("icmppingloss[192.0.2.99]")
+        input[:thresholds][:packet_loss][:high].replace("99")
+        { hostid: 10_101, host: "router-01" }
+      end
+      allow(items).to receive(:upsert_many) do |definitions, &block|
+        block.call(definitions)
+        [201]
+      end
+      allow(triggers).to receive(:upsert_for_host).and_return(301)
+
+      expect(monitoring.reconcile_interface(input)[:interface]).to eq("eth0")
+      expect(items).to have_received(:upsert_many)
+        .with([hash_including(key_: "icmppingloss[192.0.2.2]")])
+      expect(triggers).to have_received(:upsert_for_host)
+        .with(hash_including(expression: "avg(/router-01/icmppingloss[192.0.2.2],5m)>5"))
+    end
+
+    it "rejects a foreign trigger owner before writing interface items" do
+      expect(triggers).to receive(:find_managed_for_host)
+        .with(hostid: 10_101, managed_key: "interface:eth0:packet_loss", managed_by: "zabbix_manager")
+        .and_raise(ZabbixManager::Conflict, "managed trigger belongs to another owner")
+      expect(items).not_to receive(:upsert_many)
+      expect(triggers).not_to receive(:upsert_for_host)
+
+      expect { monitoring.reconcile_interface(input) }.to raise_error(ZabbixManager::Conflict, /owner/)
+    end
+
+    it "rejects contradictory line tags before discovery or item writes" do
+      input[:thresholds][:packet_loss][:tags] = [
+        { tag: "line_id", value: "a" }, { tag: "line_id", value: "b" }
+      ]
+      expect(hosts).not_to receive(:resolve)
+      expect(items).not_to receive(:upsert_many)
+
+      expect { monitoring.reconcile_interface(input) }.to raise_error(ZabbixManager::Invalid, /line_id/)
+    end
+
+    it "checks an explicit line tag before writing interface items" do
+      input[:thresholds][:packet_loss][:tags] = [{ tag: "line_id", value: "wan" }]
+      expect(triggers).to receive(:find_managed_for_host)
+        .with(hostid: 10_101, managed_key: "interface:eth0:packet_loss",
+              managed_by: "zabbix_manager", line_id: "wan")
+        .and_raise(ZabbixManager::Conflict, "trigger belongs to another line")
+      expect(items).not_to receive(:upsert_many)
+
+      expect { monitoring.reconcile_interface(input) }.to raise_error(ZabbixManager::Conflict, /line/)
+    end
+
+    it "serializes interface reconciliation with the other monitoring workflows" do
+      entered = Queue.new
+      release = Queue.new
+      allow(items).to receive(:upsert_many) do
+        entered << true
+        release.pop
+        [201]
+      end
+      allow(triggers).to receive(:upsert_for_host).and_return(301)
+      device = device_definition({ host: "router-01" }, result: { hostid: 10_101 })
+      first = Thread.new { monitoring.reconcile_interface(input) }
+      entered.pop
+      second = Thread.new { monitoring.reconcile_device(host: "router-01") }
+      Timeout.timeout(2) { Thread.pass until second.status == "sleep" || !second.alive? }
+
+      expect(device).not_to have_received(:reconcile)
+      release << true
+      Timeout.timeout(2) { [first, second].each(&:value) }
+      expect(device).to have_received(:reconcile).once
+    ensure
+      release << true if release
+      [first, second].compact.each do |thread|
+        thread.kill if thread.alive?
+        thread.join
+      end
     end
   end
 end

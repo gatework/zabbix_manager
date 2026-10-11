@@ -166,6 +166,10 @@ class ZabbixManager
 
           { tag: tag[:tag], value: tag.fetch(:value, "") }
         end
+        # line_id 参与资源层的归属校验，矛盾值必须在首个远端写入之前拒绝。
+        line_ids = extra.filter_map { |tag| tag[:value] if tag[:tag] == "line_id" }.uniq
+        raise Invalid, "line_id must have one string value" if line_ids.length > 1
+
         (tags + extra).uniq
       end
 

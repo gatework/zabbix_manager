@@ -63,7 +63,9 @@ RSpec.describe ZabbixManager::Triggers do
       }
     ).and_return([
                    { "triggerid" => "44", "description" => "Old label",
-                     "tags" => [{ "tag" => "service", "value" => "wan" }] }
+                     "tags" => [{ "tag" => "service", "value" => "wan" },
+                                { "tag" => "managed_by", "value" => "zabbix_manager" },
+                                { "tag" => "zabbix_manager_id", "value" => "interface:line-1:bandwidth" }] }
                  ])
     allow(client).to receive(:api_request).with(
       method: "trigger.update",

@@ -21,26 +21,33 @@ class ZabbixManager
     # @return [Hash] 主机宏复合身份
     def identity_filter(data)
       attributes = data.deep_symbolize_keys
-      { macro: attributes.fetch(:macro), hostid: attributes.fetch(:hostid) }
+      { macro: attributes.fetch(:macro), hostid: normalized_id_attribute(attributes.fetch(:hostid), "hostid") }
     end
 
+    # @raise [ProtocolError] 远端宏名称、归属或 ID 无效
+    # @raise [Conflict] 宏身份不唯一
     # @return [Integer, nil] 唯一主机宏 ID
     def get_id(data)
       attributes = identity_filter(data)
-      unique_macro_id(get_full_data(attributes), "hostmacroid")
+      unique_macro_id(get_full_data(attributes), "hostmacroid", attributes)
     end
 
+    # @raise [ProtocolError] 远端宏名称或 ID 无效
+    # @raise [Conflict] 宏身份不唯一
     # @return [Integer, nil] 唯一全局宏 ID
     def get_id_global(data)
       attributes = data.deep_symbolize_keys
-      unique_macro_id(get_full_data_global(macro: attributes.fetch(:macro)), "globalmacroid")
+      identity = { macro: attributes.fetch(:macro) }
+      unique_macro_id(get_full_data_global(identity), "globalmacroid", identity)
     end
 
     # @return [Array<Hash>] 主机宏查询结果
     def get_full_data(data)
       attributes = data.deep_symbolize_keys
       params = { filter: attributes.except(:hostid) }
-      params[:hostids] = attributes[:hostid] if attributes.key?(:hostid)
+      if attributes.key?(:hostid)
+        params[:hostids] = normalized_id_attribute(attributes[:hostid], "hostid")
+      end
       get_raw(params)
     end
 
@@ -73,12 +80,12 @@ class ZabbixManager
 
     # @return [Integer, nil] 更新主机宏 ID
     def update(data)
-      write_macro("update", data, "hostmacroids", expected: [data.with_indifferent_access[:hostmacroid]])
+      update_macro("update", data, "hostmacroid")
     end
 
     # @return [Integer, nil] 更新全局宏 ID
     def update_global(data)
-      write_macro("updateglobal", data, "globalmacroids", expected: [data.with_indifferent_access[:globalmacroid]])
+      update_macro("updateglobal", data, "globalmacroid")
     end
 
     # @return [Integer, nil] 已存在或新建全局宏 ID
@@ -95,8 +102,25 @@ class ZabbixManager
 
     private
 
-    def unique_macro_id(result, id_field)
-      response_objects(result)
+    def update_macro(operation, data, id_field)
+      attributes = data.deep_symbolize_keys
+      id = attributes[id_field.to_sym] = normalized_id_attribute(attributes[id_field.to_sym], id_field)
+      write_macro(operation, attributes, "#{id_field}s", expected: [id])
+    end
+
+    # 名称过滤器和 hostids 只是远端查询条件，不能代替本地身份核对。
+    def unique_macro_id(result, id_field, identity)
+      response_objects(result).each do |macro|
+        response_identifier(macro[id_field], id_field)
+        unless macro["macro"].is_a?(String) && macro["macro"] == identity[:macro]
+          raise ProtocolError, "usermacro.get returned an unexpected macro identity"
+        end
+        next unless identity.key?(:hostid)
+
+        unless response_identifier(macro["hostid"], "hostid") == identity[:hostid].to_i
+          raise ProtocolError, "usermacro.get returned a macro outside the requested host"
+        end
+      end
       raise Conflict, "multiple macros match the requested identity" if result.length > 1
 
       response_identifier(result.first[id_field], id_field) if result.first

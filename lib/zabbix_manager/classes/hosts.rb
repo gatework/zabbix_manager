@@ -23,10 +23,12 @@ class ZabbixManager
 
     # 按主机 ID 查询完整主机及接口、群组和模板。
     def dump_by_id(data)
+      attributes = data.deep_symbolize_keys
+      id = normalized_id_attribute(attributes[key.to_sym], key)
       @client.api_request(
         method: "host.get",
         params: {
-          filter: { key.to_sym => data[key.to_sym] },
+          filter: { key.to_sym => id },
           output: "extend",
           selectGroups: "extend",
           selectInterfaces: "extend",
@@ -145,7 +147,7 @@ class ZabbixManager
     # 按主机 ID 查询唯一主机，并返回表达式需要的技术名称。
     # @return [Hash, nil]
     def find_by_id(hostid)
-      positive_id_attribute(hostid, "hostid")
+      hostid = normalized_id_attribute(hostid, "hostid")
       find_host_by_filter(hostid: hostid)
     end
 

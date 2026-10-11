@@ -35,13 +35,13 @@ class ZabbixManager
     # @return [Hash] 名称和所属主机组成的精确过滤条件
     def identity_filter(data)
       attributes = data.deep_symbolize_keys
-      { name: attributes.fetch(:name), hostid: attributes.fetch(:hostid) }
+      { name: attributes.fetch(:name), hostid: normalized_id_attribute(attributes.fetch(:hostid), "hostid") }
     end
 
     # 查询主机监控项，可按稳定 key 集合过滤并选择关联对象。
     # @return [Array<Hash>]
     def for_host(hostid, keys: nil, output: "extend", select_preprocessing: nil, select_tags: nil)
-      positive_id_attribute(hostid, "hostid")
+      hostid = normalized_id_attribute(hostid, "hostid")
 
       params = { hostids: hostid, output: output }
       params[:filter] = { key_: keys } if keys.present?
@@ -68,13 +68,13 @@ class ZabbixManager
     # @return [Array<Integer>]
     def upsert_many(collection)
       items = Array(collection).map { |data| validate_item!(data) }
-      identities = items.map { |item| [positive_id_attribute(item[:hostid], "hostid").to_s, item[:key_]] }
+      identities = items.map { |item| [item[:hostid].to_s, item[:key_]] }
       duplicate = identities.tally.find { |_identity, count| count > 1 }&.first
       raise Invalid, "duplicate hostid + key_ identity #{duplicate.join(":")}" if duplicate
 
       existing = batch_items(items)
       plans = items.map do |item|
-        identity = [positive_id_attribute(item[:hostid], "hostid").to_s, item[:key_]]
+        identity = [item[:hostid].to_s, item[:key_]]
         plan_item(item, existing[identity])
       end
       if block_given?
@@ -116,7 +116,7 @@ class ZabbixManager
     # 方向和接口精确匹配由 Monitoring 业务层负责。
     # @return [Array<Hash>]
     def monitored_traffic_candidates(hostid)
-      positive_id_attribute(hostid, "hostid")
+      hostid = normalized_id_attribute(hostid, "hostid")
       @client.api_request(
         method: "item.get",
         params: {
@@ -155,7 +155,7 @@ class ZabbixManager
 
     # 每个主机只读取一次期望 key 集合，全部发现和校验完成后才开始写入。
     def batch_items(items)
-      groups = items.group_by { |item| positive_id_attribute(item[:hostid], "hostid").to_s }
+      groups = items.group_by { |item| item[:hostid].to_s }
       ids = {}
       groups.each_with_object({}) do |(owner, definitions), result|
         hostid = definitions.first[:hostid]
@@ -218,7 +218,7 @@ class ZabbixManager
       raise Invalid, "item must be a hash" unless data.is_a?(Hash)
 
       attributes = data.deep_symbolize_keys.deep_dup
-      positive_id_attribute(attributes[:hostid], "hostid")
+      attributes[:hostid] = normalized_id_attribute(attributes[:hostid], "hostid")
       %i[key_ name].each do |field|
         unless attributes[field].is_a?(String) && attributes[field].present?
           raise Invalid, "#{field} must be a non-empty string"
@@ -259,7 +259,7 @@ class ZabbixManager
 
     # 回查监控项归属，阻止共享高权限令牌跨主机修改。
     def verify_host_ownership!(hostid, ids)
-      positive_id_attribute(hostid, "hostid")
+      hostid = normalized_id_attribute(hostid, "hostid")
 
       result = @client.api_request(
         method: "item.get", params: { hostids: hostid, itemids: ids, output: ["itemid"] }
